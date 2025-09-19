@@ -1,6 +1,22 @@
-import "@/styles/globals.css";
-import type { AppProps } from "next/app";
+import type { AppProps } from 'next/app'
+import '../styles/globals.css'
+import Layout from '../components/Layout'
+import { AuthProvider } from '../contexts/AuthContext'
+import { ModalProvider } from '../contexts/ModalContext'
+import { DataProvider } from '../contexts/DataContext'
 
-export default function App({ Component, pageProps }: AppProps) {
-  return <Component {...pageProps} />;
+function MyApp({ Component, pageProps }: AppProps) {
+  return (
+    <AuthProvider>
+      <DataProvider>
+        <ModalProvider>
+          <Layout>
+            <Component {...pageProps} />
+          </Layout>
+        </ModalProvider>
+      </DataProvider>
+    </AuthProvider>
+  )
 }
+
+export default MyApp
