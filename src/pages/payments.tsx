@@ -52,7 +52,7 @@ export default function Payments(): ReactElement {
 
   return (
     <div className="p-6">
-      <div className="mb-6">
+      <div className="mb-7">
         <h1 className="text-2xl font-bold text-gray-900">Payments</h1>
         <p className="text-gray-600">Manage and track payments</p>
       </div>
