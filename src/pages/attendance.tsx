@@ -1,29 +1,18 @@
-// pages/attendance.tsx
+'use client'; // <- ensures client-only rendering
+
 import { ReactElement } from 'react'
 import { useDataContext } from '../contexts/DataContext'
 import { formatDate } from '../lib/utils'
 
-// Define the complete Attendance interface
+// Complete Attendance interface
 interface Attendance {
   id: string
-  studentId: string // Using camelCase - change to student_id if using snake_case
+  studentId: string // use student_id if your backend is snake_case
   date: string // ISO date string
   status: 'present' | 'absent' | 'late'
   createdAt?: string
   updatedAt?: string
 }
-
-// If your data uses snake_case, use this interface instead:
-/*
-interface Attendance {
-  id: string
-  student_id: string
-  date: string
-  status: 'present' | 'absent' | 'late'
-  created_at?: string
-  updated_at?: string
-}
-*/
 
 export default function Attendance(): ReactElement {
   const { attendance, loading } = useDataContext()
@@ -32,15 +21,13 @@ export default function Attendance(): ReactElement {
     return <div className="p-6">Loading attendance records...</div>
   }
 
-  // Handle potentially undefined attendance with type safety
   const attendanceRecords: Attendance[] = Array.isArray(attendance) ? attendance : []
 
-  // Calculate some basic stats
+  // Basic stats
   const totalRecords = attendanceRecords.length
-  const presentCount = attendanceRecords.filter(record => record.status === 'present').length
-  const absentCount = attendanceRecords.filter(record => record.status === 'absent').length
-  const lateCount = attendanceRecords.filter(record => record.status === 'late').length
-
+  const presentCount = attendanceRecords.filter(r => r.status === 'present').length
+  const absentCount = attendanceRecords.filter(r => r.status === 'absent').length
+  const lateCount = attendanceRecords.filter(r => r.status === 'late').length
   const attendanceRate = totalRecords > 0 ? Math.round((presentCount / totalRecords) * 100) : 0
 
   return (
@@ -56,22 +43,18 @@ export default function Attendance(): ReactElement {
           <h3 className="text-lg font-semibold text-gray-900 mb-2">Total Records</h3>
           <p className="text-3xl font-bold text-gray-600">{totalRecords}</p>
         </div>
-        
         <div className="bg-white p-6 rounded-lg shadow">
           <h3 className="text-lg font-semibold text-gray-900 mb-2">Present</h3>
           <p className="text-3xl font-bold text-green-600">{presentCount}</p>
         </div>
-        
         <div className="bg-white p-6 rounded-lg shadow">
           <h3 className="text-lg font-semibold text-gray-900 mb-2">Absent</h3>
           <p className="text-3xl font-bold text-red-600">{absentCount}</p>
         </div>
-
         <div className="bg-white p-6 rounded-lg shadow">
           <h3 className="text-lg font-semibold text-gray-900 mb-2">Late</h3>
           <p className="text-3xl font-bold text-yellow-600">{lateCount}</p>
         </div>
-        
         <div className="bg-white p-6 rounded-lg shadow">
           <h3 className="text-lg font-semibold text-gray-900 mb-2">Attendance Rate</h3>
           <p className="text-3xl font-bold text-blue-600">{attendanceRate}%</p>
@@ -114,7 +97,6 @@ export default function Attendance(): ReactElement {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                         {record.studentId}
-                        {/* If using snake_case: {record.student_id} */}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span
@@ -132,10 +114,7 @@ export default function Attendance(): ReactElement {
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <button
                           className="text-indigo-600 hover:text-indigo-900"
-                          onClick={() => {
-                            // Handle edit functionality
-                            console.log('Edit attendance:', record.id)
-                          }}
+                          onClick={() => console.log('Edit attendance:', record.id)}
                         >
                           Edit
                         </button>
