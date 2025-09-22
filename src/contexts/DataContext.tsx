@@ -8,7 +8,7 @@ export interface Payment {
   amount: number
   description: string
   paidAt: string | null
-  school_Id?: string
+  school_id?: string
   createdAt?: string
   updatedAt?: string
 }
@@ -19,7 +19,7 @@ export interface Student {
   email: string
   phone?: string
   grade?: string
-  school_Id?: string
+  school_id?: string
   createdAt?: string
   updatedAt?: string
 }
@@ -29,7 +29,7 @@ export interface Attendance {
   studentId: string
   date: string
   status: 'present' | 'absent' | 'late'
-  school_Id?: string
+  school_id?: string
   createdAt?: string
   updatedAt?: string
 }
@@ -42,7 +42,7 @@ export interface Message {
   read_at?: string | null
   recipientId?: string
   senderId?: string
-  school_Id?: string
+  school_id?: string
   createdAt?: string
   updatedAt?: string
 }
@@ -65,7 +65,7 @@ const DataContext = createContext<DataContextType | undefined>(undefined)
 
 interface DataProviderProps {
   children: ReactNode
-  schoolId?: string // optional for multi-tenant
+  school_id?: string // optional for multi-tenant
 }
 
 // ----------------- Mock Data (Fallback) -----------------
@@ -89,7 +89,7 @@ const mockMessages: Message[] = [
 ]
 
 // ----------------- Provider -----------------
-export function DataProvider({ children, schoolId }: DataProviderProps) {
+export function DataProvider({ children, school_id }: DataProviderProps) {
   const [payments, setPayments] = useState<Payment[]>([])
   const [students, setStudents] = useState<Student[]>([])
   const [attendance, setAttendance] = useState<Attendance[]>([])
@@ -103,13 +103,13 @@ export function DataProvider({ children, schoolId }: DataProviderProps) {
       setLoading(true)
       setError(null)
 
-      console.log("🔎 Fetching data with school_Id:", schoolId)
+      console.log("🔎 Fetching data with school_id:", school_id)
 
       // Students
       const { data: studentsData, error: studentsError } = await supabase
         .from('students')
         .select('*')
-        .eq('school_Id', schoolId || '')
+        .eq('school_id', school_id || '')
       setStudents(studentsData || mockStudents)
       if (studentsError) console.warn('⚠️ Students fetch error, using mock', studentsError)
 
@@ -117,7 +117,7 @@ export function DataProvider({ children, schoolId }: DataProviderProps) {
       const { data: paymentsData, error: paymentsError } = await supabase
         .from('payments')
         .select('*')
-        .eq('school_Id', schoolId || '')
+        .eq('school_id', school_id || '')
       setPayments(paymentsData || mockPayments)
       if (paymentsError) console.warn('⚠️ Payments fetch error, using mock', paymentsError)
 
@@ -125,7 +125,7 @@ export function DataProvider({ children, schoolId }: DataProviderProps) {
       const { data: attendanceData, error: attendanceError } = await supabase
         .from('attendance')
         .select('*')
-        .eq('school_Id', schoolId || '')
+        .eq('school_id', school_id || '')
       setAttendance(attendanceData || mockAttendance)
       if (attendanceError) console.warn('⚠️ Attendance fetch error, using mock', attendanceError)
 
@@ -133,7 +133,7 @@ export function DataProvider({ children, schoolId }: DataProviderProps) {
       const { data: messagesData, error: messagesError } = await supabase
         .from('messages')
         .select('*')
-        .eq('school_Id', schoolId || '')
+        .eq('school_id', school_id || '')
       setMessages(messagesData || mockMessages)
       if (messagesError) console.warn('⚠️ Messages fetch error, using mock', messagesError)
     } catch (err) {
@@ -145,17 +145,17 @@ export function DataProvider({ children, schoolId }: DataProviderProps) {
     } finally {
       setLoading(false)
     }
-  }, [schoolId])
+  }, [school_id])
 
   useEffect(() => {
-    console.log("✅ DataProvider mounted with school_Id:", schoolId)
+    console.log("✅ DataProvider mounted with school_id:", school_id)
     fetchData()
   }, [fetchData])
 
   // ----------------- Payments CRUD -----------------
   const addPayment = async (payment: Omit<Payment, 'id' | 'createdAt' | 'updatedAt'>) => {
-    const newPayment = { ...payment, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), school_Id: schoolId }
-    console.log("➕ Adding payment with school_Id:", schoolId, newPayment)
+    const newPayment = { ...payment, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), school_id }
+    console.log("➕ Adding payment with school_id:", school_id, newPayment)
     const { data, error } = await supabase.from('payments').insert([newPayment]).select()
     if (error) {
       setError(error.message)
@@ -165,7 +165,7 @@ export function DataProvider({ children, schoolId }: DataProviderProps) {
   }
 
   const updatePayment = async (id: string, paymentUpdate: Partial<Payment>) => {
-    console.log("✏️ Updating payment with id:", id, "school_Id:", schoolId)
+    console.log("✏️ Updating payment with id:", id, "school_id:", school_id)
     const { data, error } = await supabase.from('payments').update(paymentUpdate).eq('id', id).select()
     if (error) {
       setError(error.message)
@@ -175,7 +175,7 @@ export function DataProvider({ children, schoolId }: DataProviderProps) {
   }
 
   const deletePayment = async (id: string) => {
-    console.log("🗑️ Deleting payment with id:", id, "school_Id:", schoolId)
+    console.log("🗑️ Deleting payment with id:", id, "school_id:", school_id)
     const { error } = await supabase.from('payments').delete().eq('id', id)
     if (error) {
       setError(error.message)
@@ -185,7 +185,7 @@ export function DataProvider({ children, schoolId }: DataProviderProps) {
   }
 
   const refreshData = async () => {
-    console.log("🔄 Refreshing data with school_Id:", schoolId)
+    console.log("🔄 Refreshing data with school_id:", school_id)
     setLoading(true)
     await fetchData()
   }
@@ -212,4 +212,3 @@ export function useDataContext(): DataContextType {
   if (!context) throw new Error('useDataContext must be used within a DataProvider')
   return context
 }
-
