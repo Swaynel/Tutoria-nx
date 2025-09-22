@@ -6,8 +6,16 @@ import Link from 'next/link'
 import { supabase } from '../lib/supabase'
 import { useAuthContext } from '../contexts/AuthContext'
 
+interface FormData {
+  email: string
+  password: string
+  confirmPassword: string
+  fullName: string
+  schoolName: string
+}
+
 export default function Signup() {
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<FormData>({
     email: '',
     password: '',
     confirmPassword: '',
@@ -26,9 +34,7 @@ export default function Signup() {
   }, [user, router])
 
   useEffect(() => {
-    // Calculate password strength
-    const strength = calculatePasswordStrength(formData.password)
-    setPasswordStrength(strength)
+    setPasswordStrength(calculatePasswordStrength(formData.password))
   }, [formData.password])
 
   const calculatePasswordStrength = (password: string): number => {
@@ -60,32 +66,32 @@ export default function Signup() {
       setError('All fields are required')
       return false
     }
-
+    
     if (!/\S+@\S+\.\S+/.test(formData.email)) {
       setError('Please enter a valid email address')
       return false
     }
-
+    
     if (formData.password.length < 8) {
-      setError('Password must be at least 8 characters long')
+      setError('Password must be at least 8 characters')
       return false
     }
-
+    
     if (formData.password !== formData.confirmPassword) {
       setError('Passwords do not match')
       return false
     }
-
+    
     if (passwordStrength <= 2) {
       setError('Please choose a stronger password')
       return false
     }
-
+    
     if (formData.schoolName.length < 2) {
-      setError('School name must be at least 2 characters long')
+      setError('School name must be at least 2 characters')
       return false
     }
-
+    
     return true
   }
 
@@ -95,16 +101,12 @@ export default function Signup() {
       .trim()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/(^-|-$)/g, '')
-      .substring(0, 50) // Limit slug length
+      .substring(0, 50)
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }))
-    // Clear error when user starts typing
+    setFormData(prev => ({ ...prev, [name]: value }))
     if (error) setError('')
   }
 
@@ -120,73 +122,66 @@ export default function Signup() {
     }
 
     try {
-      // 1️⃣ First create the auth user
+      // 1️⃣ Create auth user
       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
         email: formData.email,
         password: formData.password,
         options: {
           emailRedirectTo: `${window.location.origin}/auth/callback`,
-          data: {
-            full_name: formData.fullName,
-            school_name: formData.schoolName
+          data: { 
+            full_name: formData.fullName, 
+            school_name: formData.schoolName 
           }
-        },
+        }
       })
 
-      if (signUpError) {
-        throw new Error(signUpError.message || 'Signup failed')
-      }
+      if (signUpError) throw new Error(signUpError.message)
+      if (!signUpData.user) throw new Error('Signup failed: No user returned')
 
-      if (!signUpData.user) {
-        throw new Error('Signup failed: No user data returned')
-      }
+      const userId = signUpData.user.id
 
-      // 2️⃣ Generate unique slug with timestamp to avoid conflicts
+      // 2️⃣ Generate unique slug
       const baseSlug = generateSlug(formData.schoolName)
-      const uniqueSlug = `${baseSlug}-${Date.now().toString(36).slice(-6)}`
+      const uniqueSlug = `${baseSlug}-${Math.random().toString(36).slice(2, 8)}`
 
-      // 3️⃣ Create school with the authenticated user's session
+      // 3️⃣ Insert school
       const { data: schoolData, error: schoolError } = await supabase
         .from('schools')
-        .insert([{
-          name: formData.schoolName,
-          slug: uniqueSlug,
-          email: formData.email
+        .insert([{ 
+          name: formData.schoolName, 
+          slug: uniqueSlug, 
+          email: formData.email 
         }])
         .select()
         .single()
 
       if (schoolError) {
-        console.error('School creation error:', schoolError)
-        
-        // If school creation fails, try to delete the auth user
-        await supabase.auth.admin.deleteUser(signUpData.user.id)
-        
+        // Clean up user if school creation fails
+        try { await supabase.auth.admin.deleteUser(userId) } catch {}
         throw new Error(`School creation failed: ${schoolError.message}`)
       }
 
-      if (!schoolData) {
-        throw new Error('School creation failed: No data returned')
-      }
-
-      // 4️⃣ Update user profile with school_id and role
+      // 4️⃣ Insert profile
       const { error: profileError } = await supabase
         .from('profiles')
-        .update({
+        .insert({
+          id: userId,
           full_name: formData.fullName,
           role: 'school_admin',
           school_id: schoolData.id,
-          updated_at: new Date().toISOString()
+          email: formData.email
         })
-        .eq('id', signUpData.user.id)
 
       if (profileError) {
-        console.error('Profile update error:', profileError)
-        throw new Error(`Profile update failed: ${profileError.message}`)
+        try {
+          await supabase.auth.admin.deleteUser(userId)
+          await supabase.from('schools').delete().eq('id', schoolData.id)
+        } catch {}
+        throw new Error(profileError.message)
       }
 
-      setSuccess('Account created successfully! Please check your email to verify your account before logging in.')
-      
+      setSuccess('Account created successfully! Please check your email to verify your account.')
+
       // Clear form
       setFormData({
         email: '',
@@ -196,18 +191,10 @@ export default function Signup() {
         schoolName: ''
       })
 
-      // Redirect to login after a delay
-      setTimeout(() => {
-        router.push('/login')
-      }, 3000)
-
+      setTimeout(() => router.push('/login'), 3000)
     } catch (err: unknown) {
-  console.error('Signup error:', err)
-  if (err instanceof Error) {
-    setError(err.message)
-  } else {
-    setError('An unexpected error occurred. Please try again.')
-  }
+      console.error('Signup error:', err)
+      setError(err instanceof Error ? err.message : 'An unexpected error occurred.')
     } finally {
       setLoading(false)
     }
@@ -229,7 +216,7 @@ export default function Signup() {
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
             Or{' '}
-            <Link href="/login" className="font-medium text-indigo-600 hover:text-indigo-500 transition-colors">
+            <Link href="/login" className="font-medium text-indigo-600 hover:text-indigo-500">
               sign in to your existing account
             </Link>
           </p>
@@ -237,24 +224,20 @@ export default function Signup() {
 
         <form className="mt-8 space-y-6" onSubmit={handleSignup}>
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-md text-sm">
-              <div className="flex items-center">
-                <svg className="h-4 w-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                </svg>
-                {error}
-              </div>
+            <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-md text-sm flex items-center">
+              <svg className="h-4 w-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+              {error}
             </div>
           )}
 
           {success && (
-            <div className="bg-green-50 border border-green-200 text-green-600 px-4 py-3 rounded-md text-sm">
-              <div className="flex items-center">
-                <svg className="h-4 w-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                </svg>
-                {success}
-              </div>
+            <div className="bg-green-50 border border-green-200 text-green-600 px-4 py-3 rounded-md text-sm flex items-center">
+              <svg className="h-4 w-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+              </svg>
+              {success}
             </div>
           )}
 
@@ -269,10 +252,10 @@ export default function Signup() {
                 type="text"
                 required
                 placeholder="Enter your full name"
-                className="appearance-none block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
                 value={formData.fullName}
                 onChange={handleInputChange}
                 disabled={loading}
+                className="appearance-none block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
               />
             </div>
 
@@ -286,10 +269,10 @@ export default function Signup() {
                 type="text"
                 required
                 placeholder="Enter your school name"
-                className="appearance-none block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
                 value={formData.schoolName}
                 onChange={handleInputChange}
                 disabled={loading}
+                className="appearance-none block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
               />
             </div>
 
@@ -301,13 +284,12 @@ export default function Signup() {
                 id="email"
                 name="email"
                 type="email"
-                autoComplete="email"
                 required
                 placeholder="Enter your email address"
-                className="appearance-none block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
                 value={formData.email}
                 onChange={handleInputChange}
                 disabled={loading}
+                className="appearance-none block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
               />
             </div>
 
@@ -319,13 +301,12 @@ export default function Signup() {
                 id="password"
                 name="password"
                 type="password"
-                autoComplete="new-password"
                 required
                 placeholder="Create a strong password"
-                className="appearance-none block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
                 value={formData.password}
                 onChange={handleInputChange}
                 disabled={loading}
+                className="appearance-none block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
               />
               {formData.password && (
                 <div className="mt-1">
@@ -336,9 +317,7 @@ export default function Signup() {
                         style={{ width: `${(passwordStrength / 5) * 100}%` }}
                       />
                     </div>
-                    <span className="ml-2 text-xs text-gray-600">
-                      {getPasswordStrengthText(passwordStrength)}
-                    </span>
+                    <span className="ml-2 text-xs text-gray-600">{getPasswordStrengthText(passwordStrength)}</span>
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
                     Use at least 8 characters with uppercase, lowercase, numbers, and symbols
@@ -355,13 +334,12 @@ export default function Signup() {
                 id="confirmPassword"
                 name="confirmPassword"
                 type="password"
-                autoComplete="new-password"
                 required
                 placeholder="Confirm your password"
-                className="appearance-none block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
                 value={formData.confirmPassword}
                 onChange={handleInputChange}
                 disabled={loading}
+                className="appearance-none block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
               />
             </div>
           </div>
@@ -386,18 +364,11 @@ export default function Signup() {
             </button>
           </div>
 
-          <div className="text-center">
-            <p className="text-xs text-gray-500">
-              By creating an account, you agree to our{' '}
-              <Link href="/terms" className="text-indigo-600 hover:text-indigo-500">
-                Terms of Service
-              </Link>{' '}
-              and{' '}
-              <Link href="/privacy" className="text-indigo-600 hover:text-indigo-500">
-                Privacy Policy
-              </Link>
-            </p>
-          </div>
+          <p className="text-xs text-gray-500 text-center">
+            By creating an account, you agree to our{' '}
+            <Link href="/terms" className="text-indigo-600 hover:text-indigo-500">Terms</Link> and{' '}
+            <Link href="/privacy" className="text-indigo-600 hover:text-indigo-500">Privacy Policy</Link>.
+          </p>
         </form>
       </div>
     </div>
