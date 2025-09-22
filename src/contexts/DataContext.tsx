@@ -146,12 +146,10 @@ export function DataProvider({ children, school_id }: DataProviderProps) {
       setLoading(false)
     }
   }, [school_id])
-
-  useEffect(() => {
-    console.log("✅ DataProvider mounted with school_id:", school_id)
-    fetchData()
-  }, [fetchData])
-
+useEffect(() => {
+  console.log("✅ DataProvider mounted with school_id:", school_id)
+  fetchData()
+}, [fetchData, school_id])
   // ----------------- Payments CRUD -----------------
   const addPayment = async (payment: Omit<Payment, 'id' | 'createdAt' | 'updatedAt'>) => {
     const newPayment = { ...payment, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), school_id }
