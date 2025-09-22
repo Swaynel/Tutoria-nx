@@ -1,6 +1,5 @@
 import { ReactNode } from 'react'
-import LeftSidebar from './LeftSidebar'
-import RightSidebar from './RightSidebar'
+import CombinedSidebar from './CombinedSidebar'
 import ModalManager from './ModalManager'
 
 interface LayoutProps {
@@ -10,11 +9,10 @@ interface LayoutProps {
 export default function Layout({ children }: LayoutProps) {
   return (
     <div className="flex h-screen bg-gray-50">
-      <LeftSidebar />
+      <CombinedSidebar />
       <main className="flex-1 overflow-auto">
         {children}
       </main>
-      <RightSidebar />
       <ModalManager />
     </div>
   )
