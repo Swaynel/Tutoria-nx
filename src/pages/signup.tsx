@@ -95,15 +95,6 @@ export default function Signup() {
     return true
   }
 
-  const generateSlug = (name: string): string => {
-    return name
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/(^-|-$)/g, '')
-      .substring(0, 50)
-  }
-
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
     setFormData(prev => ({ ...prev, [name]: value }))
@@ -122,7 +113,9 @@ export default function Signup() {
     }
 
     try {
-      // 1️⃣ Create auth user
+      console.log('🚀 Starting signup process...')
+      
+      // SIMPLIFIED: Let the database trigger handle school/profile creation
       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
         email: formData.email,
         password: formData.password,
@@ -135,52 +128,26 @@ export default function Signup() {
         }
       })
 
-      if (signUpError) throw new Error(signUpError.message)
-      if (!signUpData.user) throw new Error('Signup failed: No user returned')
+      console.log('📝 Signup response:', { signUpData, signUpError })
 
-      const userId = signUpData.user.id
-
-      // 2️⃣ Generate unique slug
-      const baseSlug = generateSlug(formData.schoolName)
-      const uniqueSlug = `${baseSlug}-${Math.random().toString(36).slice(2, 8)}`
-
-      // 3️⃣ Insert school
-      const { data: schoolData, error: schoolError } = await supabase
-        .from('schools')
-        .insert([{ 
-          name: formData.schoolName, 
-          slug: uniqueSlug, 
-          email: formData.email 
-        }])
-        .select()
-        .single()
-
-      if (schoolError) {
-        // Clean up user if school creation fails
-        try { await supabase.auth.admin.deleteUser(userId) } catch {}
-        throw new Error(`School creation failed: ${schoolError.message}`)
+      if (signUpError) {
+        throw new Error(signUpError.message)
       }
 
-      // 4️⃣ Insert profile
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .insert({
-          id: userId,
-          full_name: formData.fullName,
-          role: 'school_admin',
-          school_id: schoolData.id,
-          email: formData.email
-        })
-
-      if (profileError) {
-        try {
-          await supabase.auth.admin.deleteUser(userId)
-          await supabase.from('schools').delete().eq('id', schoolData.id)
-        } catch {}
-        throw new Error(profileError.message)
+      if (!signUpData.user) {
+        throw new Error('Signup failed: No user returned')
       }
 
-      setSuccess('Account created successfully! Please check your email to verify your account.')
+      console.log('✅ User created with ID:', signUpData.user.id)
+
+      // Wait for trigger to complete
+      await new Promise(resolve => setTimeout(resolve, 2000))
+
+      setSuccess(
+        signUpData.user.email_confirmed_at 
+          ? 'Account created successfully! Redirecting to dashboard...'
+          : 'Account created successfully! Please check your email to verify your account.'
+      )
 
       // Clear form
       setFormData({
@@ -191,10 +158,38 @@ export default function Signup() {
         schoolName: ''
       })
 
-      setTimeout(() => router.push('/login'), 3000)
+      // Redirect after success
+      setTimeout(() => {
+        if (signUpData.user.email_confirmed_at) {
+          router.push('/dashboard')
+        } else {
+          router.push('/login?message=Please verify your email before signing in')
+        }
+      }, 3000)
+
     } catch (err: unknown) {
-      console.error('Signup error:', err)
-      setError(err instanceof Error ? err.message : 'An unexpected error occurred.')
+      console.error('❌ Signup error:', err)
+      
+      let errorMessage = 'An unexpected error occurred.'
+      
+      if (err instanceof Error) {
+        errorMessage = err.message
+        
+        // Handle common errors with better messages
+        if (errorMessage.includes('User already registered')) {
+          errorMessage = 'An account with this email already exists. Please sign in instead.'
+        } else if (errorMessage.includes('Invalid email')) {
+          errorMessage = 'Please enter a valid email address.'
+        } else if (errorMessage.includes('Password should be at least')) {
+          errorMessage = 'Password must be at least 6 characters long.'
+        } else if (errorMessage.includes('duplicate key value')) {
+          errorMessage = 'An account with this email or school name already exists.'
+        } else if (errorMessage.includes('Database error')) {
+          errorMessage = 'There was an issue creating your account. Please try again or contact support.'
+        }
+      }
+      
+      setError(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -225,7 +220,7 @@ export default function Signup() {
         <form className="mt-8 space-y-6" onSubmit={handleSignup}>
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-md text-sm flex items-center">
-              <svg className="h-4 w-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+              <svg className="h-4 w-4 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
               </svg>
               {error}
@@ -234,7 +229,7 @@ export default function Signup() {
 
           {success && (
             <div className="bg-green-50 border border-green-200 text-green-600 px-4 py-3 rounded-md text-sm flex items-center">
-              <svg className="h-4 w-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+              <svg className="h-4 w-4 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
               </svg>
               {success}
@@ -255,7 +250,7 @@ export default function Signup() {
                 value={formData.fullName}
                 onChange={handleInputChange}
                 disabled={loading}
-                className="appearance-none block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                className="appearance-none block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm disabled:bg-gray-100"
               />
             </div>
 
@@ -272,7 +267,7 @@ export default function Signup() {
                 value={formData.schoolName}
                 onChange={handleInputChange}
                 disabled={loading}
-                className="appearance-none block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                className="appearance-none block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm disabled:bg-gray-100"
               />
             </div>
 
@@ -289,7 +284,7 @@ export default function Signup() {
                 value={formData.email}
                 onChange={handleInputChange}
                 disabled={loading}
-                className="appearance-none block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                className="appearance-none block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm disabled:bg-gray-100"
               />
             </div>
 
@@ -306,10 +301,10 @@ export default function Signup() {
                 value={formData.password}
                 onChange={handleInputChange}
                 disabled={loading}
-                className="appearance-none block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                className="appearance-none block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm disabled:bg-gray-100"
               />
               {formData.password && (
-                <div className="mt-1">
+                <div className="mt-2">
                   <div className="flex items-center justify-between">
                     <div className="w-full bg-gray-200 rounded-full h-2">
                       <div
@@ -339,7 +334,7 @@ export default function Signup() {
                 value={formData.confirmPassword}
                 onChange={handleInputChange}
                 disabled={loading}
-                className="appearance-none block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                className="appearance-none block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm disabled:bg-gray-100"
               />
             </div>
           </div>
