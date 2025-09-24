@@ -1,35 +1,49 @@
+import { NextApiRequest, NextApiResponse } from 'next'
+import { processUSSDResponse as processATUSSDResponse } from '../../../lib/africastalking'
+
 // USSD request parameters
 export interface USSDRequest {
   sessionId: string
   phoneNumber: string
   text: string
+  serviceCode?: string
 }
 
 // USSD response is always a string (Africa's Talking expects plain text)
 export type USSDResponse = string
 
-/**
- * Processes a USSD request and returns the response string
- */
-export async function processUSSDResponse(
-  sessionId: string,
-  phoneNumber: string,
-  text: string
-): Promise<USSDResponse> {
-  // Example: split user input by "*"
-  const userInput = text.split('*').filter(Boolean)
-
-  // Implement your USSD menu logic here
-  if (userInput.length === 0) {
-    return 'CON Welcome to My Service\n1. Check Balance\n2. Buy Airtime'
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // Only allow POST method
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', ['POST'])
+    return res.status(405).end(`Method ${req.method} Not Allowed`)
   }
 
-  switch (userInput[0]) {
-    case '1':
-      return 'END Your balance is KES 1,234.56'
-    case '2':
-      return 'CON Enter amount to buy airtime:'
-    default:
-      return 'END Invalid option. Please try again.'
+  try {
+    const { sessionId, phoneNumber, text, serviceCode } = req.body as USSDRequest
+
+    // Validate required fields
+    if (!sessionId || !phoneNumber || text === undefined) {
+      return res.status(400).json({ error: 'Missing required parameters' })
+    }
+
+    // Process the USSD request using our library function
+    const session = {
+      sessionId,
+      phoneNumber,
+      serviceCode: serviceCode || '*384*38164#',
+      text
+    }
+
+    const response = await processATUSSDResponse(session, text)
+
+    // Africa's Talking expects plain text responses
+    res.setHeader('Content-Type', 'text/plain')
+    return res.status(200).send(response.text)
+
+  } catch (error) {
+    console.error('USSD Processing Error:', error)
+    res.setHeader('Content-Type', 'text/plain')
+    return res.status(500).send('END An error occurred. Please try again later.')
   }
 }
