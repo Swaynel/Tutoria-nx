@@ -108,11 +108,16 @@ if (typeof window === 'undefined') {
   const apiKey = process.env.AFRICAS_TALKING_API_KEY
   const username = process.env.AFRICAS_TALKING_USERNAME
 
-  if (!apiKey || !username) {
-    console.error("Africa's Talking API credentials missing - SMS/USSD features will be disabled")
+  if (!apiKey || !username || apiKey === 'placeholder' || username === 'placeholder') {
+    console.error("Africa's Talking API credentials missing or invalid - SMS/USSD features will be disabled")
   } else {
-    const at = AfricasTalking({ apiKey, username }) as unknown
-    africastalking = at as AfricasTalkingInstance
+    try {
+      const at = AfricasTalking({ apiKey, username }) as unknown
+      africastalking = at as AfricasTalkingInstance
+      console.log("Africa's Talking SDK initialized successfully")
+    } catch (err) {
+      console.error("Failed to initialize Africa's Talking SDK:", err)
+    }
   }
 }
 
@@ -121,15 +126,28 @@ if (typeof window === 'undefined') {
 // ========================
 export const sendSMS = async (to: string[], message: string): Promise<SMSResult[]> => {
   if (typeof window !== 'undefined') {
-    throw new Error('sendSMS can only be used on the server side')
-  }
-
-  if (!africastalking) {
-    console.warn("Africa's Talking not initialized - SMS feature disabled")
+    console.warn('sendSMS called from browser - this should be a server-side operation')
     return to.map((recipient) => ({
       recipient,
       success: false,
-      error: 'SMS service temporarily unavailable',
+      error: 'SMS must be sent from server-side',
+    }))
+  }
+
+  if (!africastalking) {
+    // Check if this is due to missing credentials
+    const credentialsMissing = !process.env.AFRICAS_TALKING_API_KEY || !process.env.AFRICAS_TALKING_USERNAME || 
+      process.env.AFRICAS_TALKING_API_KEY === 'placeholder' || process.env.AFRICAS_TALKING_USERNAME === 'placeholder'
+    
+    const errorMessage = credentialsMissing
+      ? "Africa's Talking credentials not configured. Please check your environment variables."
+      : "Africa's Talking SDK initialization failed. The service may be temporarily unavailable."
+    
+    console.warn(`SMS disabled: ${errorMessage}`)
+    return to.map((recipient) => ({
+      recipient,
+      success: false,
+      error: errorMessage,
     }))
   }
 
@@ -156,8 +174,20 @@ export const sendSMS = async (to: string[], message: string): Promise<SMSResult[
     try {
       return await sendOnce()
     } catch (firstErr) {
-      console.warn('sendSMS first attempt failed, retrying once...', firstErr)
-      await new Promise((r) => setTimeout(r, 500))
+      // Check if this is a temporary error worth retrying
+      const shouldRetry = firstErr instanceof Error && (
+        firstErr.message.includes('timeout') ||
+        firstErr.message.includes('network') ||
+        firstErr.message.includes('ECONNRESET') ||
+        firstErr.message.toLowerCase().includes('temporary')
+      )
+
+      if (!shouldRetry) {
+        throw firstErr // Don't retry permanent errors
+      }
+
+      console.warn('sendSMS first attempt failed, retrying once...', { error: firstErr, recipients: to })
+      await new Promise((r) => setTimeout(r, 1000)) // Longer delay for retry
       return await sendOnce()
     }
   } catch (error) {

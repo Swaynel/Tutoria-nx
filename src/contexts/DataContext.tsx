@@ -24,10 +24,10 @@ export interface DataContextType {
   profileLoading: boolean
   error: string | null
   profileError: string | null
-  addPayment: (payment: Omit<Payment, 'id' | 'created_at' | 'updated_at' | 'school_id'>, schoolId?: string) => Promise<void>
+  addPayment: (payment: Omit<Payment, 'id' | 'created_at' | 'updated_at' | 'school_id'>, school_id?: string) => Promise<void>
   updatePayment: (id: string, payment: Partial<Payment>) => Promise<void>
   deletePayment: (id: string) => Promise<void>
-  addStudent: (student: Omit<Student, 'id' | 'created_at' | 'school_id' | 'updated_at'>, schoolId?: string) => Promise<void>
+  addStudent: (student: Omit<Student, 'id' | 'created_at' | 'school_id' | 'updated_at'>, school_id?: string) => Promise<void>
   updateStudent: (id: string, student: Partial<Student>) => Promise<void>
   deleteStudent: (id: string) => Promise<void>
   refreshAllData: () => Promise<void>
@@ -191,9 +191,9 @@ export function DataProvider({ children }: DataProviderProps) {
   }, [school_id])
 
   // --- Individual CRUD operations ---
-  const addPayment = useCallback(async (payment: Omit<Payment, 'id' | 'created_at' | 'updated_at' | 'school_id'>, schoolId?: string) => {
-    // Prefer explicit schoolId param, then profile's school_id, then auth metadata
-    const targetSchool = schoolId || school_id || (user?.user_metadata as { school_id?: string })?.school_id || null
+  const addPayment = useCallback(async (payment: Omit<Payment, 'id' | 'created_at' | 'updated_at' | 'school_id'>, school_id?: string) => {
+    // Prefer explicit school_id param, then profile's school_id, then auth metadata
+    const targetSchool = school_id || (userProfile?.school_id || null) || (user?.user_metadata as { school_id?: string })?.school_id || null
     if (!targetSchool) {
       throw new Error('Cannot add payment: No school ID available. Please select or assign a school to your profile.')
     }
@@ -204,7 +204,7 @@ export function DataProvider({ children }: DataProviderProps) {
       .single()
     if (error) throw error
     if (data) setPayments(prev => [...prev, data as Payment])
-  }, [school_id, user])
+  }, [school_id, user, userProfile])
 
   const updatePayment = useCallback(async (id: string, payment: Partial<Payment>) => {
     const { error } = await supabase
@@ -222,9 +222,9 @@ export function DataProvider({ children }: DataProviderProps) {
     if (error) throw error
   }, [])
 
-  const addStudent = useCallback(async (student: Omit<Student, 'id' | 'created_at' | 'school_id' | 'updated_at'>, schoolId?: string) => {
-    // Allow callers to pass an explicit schoolId (useful for superadmins creating students for a specific school)
-    const targetSchool = schoolId || school_id || (user?.user_metadata as { school_id?: string })?.school_id || null
+  const addStudent = useCallback(async (student: Omit<Student, 'id' | 'created_at' | 'school_id' | 'updated_at'>, school_id?: string) => {
+    // Allow callers to pass an explicit school_id (useful for superadmins creating students for a specific school)
+    const targetSchool = school_id || (userProfile?.school_id || null) || (user?.user_metadata as { school_id?: string })?.school_id || null
     if (!targetSchool) {
       throw new Error('Cannot add student: No school ID available. Please select or assign a school to your profile before adding students.')
     }
@@ -239,7 +239,7 @@ export function DataProvider({ children }: DataProviderProps) {
       .single()
     if (error) throw error
     // The real-time subscription will handle updating the state
-  }, [school_id, user])
+  }, [school_id, user, userProfile])
 
   const updateStudent = useCallback(async (id: string, student: Partial<Student>) => {
     const { error } = await supabase
