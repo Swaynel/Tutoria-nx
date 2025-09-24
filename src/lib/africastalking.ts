@@ -1,5 +1,6 @@
 // src/lib/africastalking.ts
 import AfricasTalking from 'africastalking'
+import { supabase } from './supabase'
 
 // ========================
 // Config
@@ -132,10 +133,9 @@ export const sendSMS = async (to: string[], message: string): Promise<SMSResult[
     }))
   }
 
-  try {
+  const sendOnce = async () => {
     const formattedMessage = `${message}\n\n- ${AT_CONFIG.SMS_SENDER_ID}`
-
-    const result = await africastalking.SMS.send({
+    const result = await africastalking!.SMS.send({
       to,
       message: formattedMessage,
       from: AT_CONFIG.SMS_SHORT_CODE,
@@ -149,6 +149,17 @@ export const sendSMS = async (to: string[], message: string): Promise<SMSResult[
       cost: recipient.cost,
       error: recipient.status !== 'Success' ? recipient.status : undefined,
     }))
+  }
+
+  try {
+    // Try once; if it fails, retry once after a short delay
+    try {
+      return await sendOnce()
+    } catch (firstErr) {
+      console.warn('sendSMS first attempt failed, retrying once...', firstErr)
+      await new Promise((r) => setTimeout(r, 500))
+      return await sendOnce()
+    }
   } catch (error) {
     const err = error instanceof Error ? error : new Error('Unknown SMS error')
     console.error("Africa's Talking SMS API error:", err)
@@ -238,16 +249,18 @@ export const processUSSDResponse = async (
 
   try {
     const inputs = text.split('*').filter((input) => input.length > 0)
-    const lastInput: USSDOption = inputs[inputs.length - 1] as USSDOption
 
     let responseText: string
 
-    switch (lastInput) {
+    // Route based on the first input (main menu choice)
+    const mainChoice = inputs[0] as USSDOption | undefined
+
+    switch (mainChoice) {
       case '1':
-        responseText = await getAttendanceViaUSSD()
+        responseText = await getAttendanceViaUSSD(session.phoneNumber, inputs)
         break
       case '2':
-        responseText = await getFeesViaUSSD()
+        responseText = await getFeesViaUSSD(session.phoneNumber, inputs)
         break
       case '3':
         responseText = 'Contact your school admin at: 0700-000-000\nOr visit: tuitora.com'
@@ -257,6 +270,13 @@ export const processUSSDResponse = async (
       default:
         responseText = 'Welcome to Tuitora. Select option:\n1. Check Attendance\n2. Check Fees\n3. Contact School'
         break
+    }
+
+    // Log session to Supabase (best-effort)
+    try {
+      await logUSSDSession(session.sessionId, session.phoneNumber, text, responseText, 'pending')
+    } catch (err) {
+      console.error('Failed to log USSD session:', err)
     }
 
     return {
@@ -280,31 +300,206 @@ export const processUSSDResponse = async (
 // ========================
 // Mock USSD services
 // ========================
-const getAttendanceViaUSSD = async (): Promise<string> => {
-  return `ATTENDANCE SUMMARY:
-Present: 45 days
-Absent: 2 days
-Late: 3 days
-Last update: ${new Date().toLocaleDateString()}
+type ParentRelRow = { student_id: string; profiles?: { phone?: string } }
+type AttendanceRow = { status: string }
 
-0. Back
-00. Main Menu`
+// Simple in-memory cache for lookups (phone -> studentIds)
+const lookupCache = new Map<string, { studentIds: string[]; expiresAt: number }>()
+const CACHE_TTL_MS = 60_000 // 1 minute
+
+const getCachedStudentIds = (phone: string): string[] | null => {
+  const entry = lookupCache.get(phone)
+  if (!entry) return null
+  if (Date.now() > entry.expiresAt) {
+    lookupCache.delete(phone)
+    return null
+  }
+  return entry.studentIds
 }
 
-const getFeesViaUSSD = async (): Promise<string> => {
-  return `FEES SUMMARY:
-Total Due: KES 15,000
-Paid: KES 10,000
-Balance: KES 5,000
-Due Date: 25/12/2024
+const setCachedStudentIds = (phone: string, studentIds: string[]) => {
+  lookupCache.set(phone, { studentIds, expiresAt: Date.now() + CACHE_TTL_MS })
+}
 
-0. Back
-00. Main Menu`
+const getAttendanceViaUSSD = async (phone?: string, inputs?: string[]): Promise<string> => {
+  try {
+    if (!phone) {
+      return `ATTENDANCE SUMMARY:\nNo phone number provided.\n0. Back\n00. Main Menu`
+    }
+
+  // Try cache first
+  let studentIds = phone ? getCachedStudentIds(phone) || [] : []
+
+  if (studentIds.length === 0) {
+      // Try to find parent_student_relationships by profile phone
+      const { data: rels, error: relError } = await supabase
+        .from('parent_student_relationships')
+        .select('student_id, profiles (phone)')
+        .eq('profiles.phone', phone)
+
+      if (relError) throw relError
+
+      studentIds = (rels as ParentRelRow[] | null)?.map((r) => r.student_id) || []
+      if (studentIds.length > 0) setCachedStudentIds(phone, studentIds)
+    }
+
+  if (studentIds.length === 0) {
+      // Maybe it's a student's own phone
+      const { data: student, error: stuErr } = await supabase
+        .from('students')
+        .select('id')
+        .eq('phone', phone)
+        .single()
+      if (stuErr) throw stuErr
+      if (student) {
+        studentIds.push(student.id)
+        setCachedStudentIds(phone, [student.id])
+      }
+    }
+
+    if (studentIds.length === 0) {
+      return `ATTENDANCE SUMMARY:\nNo student found for this phone number.\n0. Back\n00. Main Menu`
+    }
+
+    // If multiple students, and only main menu selected (inputs length === 1), show selection menu
+    if (studentIds.length > 1 && (!inputs || inputs.length === 1)) {
+      const list = studentIds.map((id, idx) => `${idx + 1}. Student ${idx + 1}`).join('\n')
+      return `MULTIPLE STUDENTS FOUND:\n${list}\nSelect a number to view that student's attendance\n0. Back\n00. Main Menu`
+    }
+
+    // If selection provided (e.g., inputs[1] = '2'), pick that student
+    let chosenStudentId = studentIds[0]
+    if (studentIds.length > 1 && inputs && inputs.length >= 2) {
+      const sel = parseInt(inputs[1], 10)
+      if (!Number.isNaN(sel) && sel >= 1 && sel <= studentIds.length) {
+        chosenStudentId = studentIds[sel - 1]
+      }
+    }
+
+    // Fetch recent attendance records for these students (last 30 days)
+    const fromDate = new Date()
+    fromDate.setDate(fromDate.getDate() - 30)
+
+    const { data: attendanceRows, error: attError } = await supabase
+      .from('attendance')
+      .select('status')
+      .eq('student_id', chosenStudentId)
+      .gt('date', fromDate.toISOString().split('T')[0])
+
+    if (attError) throw attError
+
+  const present = (attendanceRows as AttendanceRow[] | null || []).filter((r) => r.status === 'present').length
+  const absent = (attendanceRows as AttendanceRow[] | null || []).filter((r) => r.status === 'absent').length
+  const late = (attendanceRows as AttendanceRow[] | null || []).filter((r) => r.status === 'late').length
+
+    return `ATTENDANCE SUMMARY:\nPresent: ${present} days\nAbsent: ${absent} days\nLate: ${late} days\nLast update: ${new Date().toLocaleDateString()}\n\n0. Back\n00. Main Menu`
+  } catch (error) {
+    console.error('getAttendanceViaUSSD error:', error)
+    return `ATTENDANCE SUMMARY:\nUnable to retrieve attendance at the moment.\n0. Back\n00. Main Menu`
+  }
+}
+
+type PaymentRow = { amount?: number; status?: string }
+
+const getFeesViaUSSD = async (phone?: string, inputs?: string[]): Promise<string> => {
+  try {
+    if (!phone) {
+      return `FEES SUMMARY:\nNo phone number provided.\n0. Back\n00. Main Menu`
+    }
+    // Try cache first
+    let studentIds = phone ? getCachedStudentIds(phone) || [] : []
+
+    if (studentIds.length === 0) {
+      const { data: rels, error: relError } = await supabase
+        .from('parent_student_relationships')
+        .select('student_id, profiles (phone)')
+        .eq('profiles.phone', phone)
+
+      if (relError) throw relError
+
+      studentIds = (rels as ParentRelRow[] | null)?.map((r) => r.student_id) || []
+      if (studentIds.length > 0 && phone) setCachedStudentIds(phone, studentIds)
+    }
+
+    let studentId: string | null = studentIds.length > 0 ? studentIds[0] : null
+
+    if (!studentId) {
+      const { data: student, error: stuErr } = await supabase
+        .from('students')
+        .select('id')
+        .eq('phone', phone)
+        .single()
+      if (stuErr) throw stuErr
+      if (student) {
+        studentId = student.id
+        if (phone && studentId) setCachedStudentIds(phone, [studentId])
+      }
+    }
+
+    if (!studentId) {
+      return `FEES SUMMARY:\nNo student found for this phone number.\n0. Back\n00. Main Menu`
+    }
+
+    // Multi-student handling: if multiple studentIds and no selection provided, ask user to choose
+    if (studentIds.length > 1 && (!inputs || inputs.length === 1)) {
+      const list = studentIds.map((id, idx) => `${idx + 1}. Student ${idx + 1}`).join('\n')
+      return `MULTIPLE STUDENTS FOUND:\n${list}\nSelect a number to view that student's fees\n0. Back\n00. Main Menu`
+    }
+
+    // If a selection was provided, pick the specified student
+    let chosen = studentId
+    if (studentIds.length > 1 && inputs && inputs.length >= 2) {
+      const sel = parseInt(inputs[1], 10)
+      if (!Number.isNaN(sel) && sel >= 1 && sel <= studentIds.length) {
+        chosen = studentIds[sel - 1]
+      }
+    }
+
+    // Calculate fees by summing payments and looking for expected fees
+    const { data: paymentsRows, error: payErr } = await supabase
+      .from('payments')
+      .select('amount, status')
+      .eq('student_id', chosen)
+
+    if (payErr) throw payErr
+
+  const paid = (paymentsRows as PaymentRow[] | null || []).filter((p) => p.status === 'paid').reduce((s: number, p) => s + (p.amount || 0), 0)
+  const due = (paymentsRows as PaymentRow[] | null || []).filter((p) => p.status !== 'paid').reduce((s: number, p) => s + (p.amount || 0), 0)
+
+    return `FEES SUMMARY:\nTotal Due: KES ${due + paid}\nPaid: KES ${paid}\nBalance: KES ${due}\n\n0. Back\n00. Main Menu`
+  } catch (error) {
+    console.error('getFeesViaUSSD error:', error)
+    return `FEES SUMMARY:\nUnable to retrieve fee information at the moment.\n0. Back\n00. Main Menu`
+  }
 }
 
 // ========================
 // Get SDK Client
 // ========================
+const logUSSDSession = async (
+  sessionId: string,
+  phone: string,
+  inputText: string,
+  responseText: string,
+  status: 'pending' | 'completed' | 'failed'
+) => {
+  try {
+    await supabase.from('ussd_sessions').insert([
+      {
+        session_id: sessionId,
+        phone,
+        input_text: inputText,
+        response_text: responseText,
+        status,
+        created_at: new Date().toISOString()
+      }
+    ])
+  } catch (err) {
+    console.error('logUSSDSession error:', err)
+    // swallow errors - logging should be best-effort
+  }
+}
+
 export const getAfricasTalkingClient = (): AfricasTalkingInstance | null => africastalking
 
 // ========================

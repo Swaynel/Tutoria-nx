@@ -24,6 +24,13 @@ export default function SendBulkSMSModal({ onClose }: SendBulkSMSModalProps) {
   const handleSend = async () => {
     if (!message.trim() || !user?.school_id) return
 
+    // Only admins can send bulk messages from UI
+    const role = (user && (user as { role?: string }).role) || ''
+    if (!(role === 'superadmin' || role === 'school_admin')) {
+      setResultSummary({ error: 'You do not have permission to send bulk messages.' })
+      return
+    }
+
     setIsSending(true)
     setResultSummary(null)
 
@@ -38,9 +45,9 @@ export default function SendBulkSMSModal({ onClose }: SendBulkSMSModalProps) {
         })
       })
 
-      const result: BulkSMSResult = await response.json()
+  const result: BulkSMSResult = await response.json()
 
-      if (!response.ok) throw new Error(result.error ?? 'Unknown error')
+  if (!response.ok) throw new Error(result.error ?? 'Unknown error')
 
       // Show summary
       setResultSummary({
@@ -64,6 +71,8 @@ export default function SendBulkSMSModal({ onClose }: SendBulkSMSModalProps) {
 
   const charCount = message.length
   const maxChars = 160 // Standard SMS character limit
+  const segments = Math.ceil(Math.max(1, charCount) / maxChars)
+  const segmentInfo = segments > 1 ? `${segments} segments (${charCount} chars)` : `${charCount} chars`
 
   return (
     <div className="space-y-4">
@@ -100,7 +109,7 @@ export default function SendBulkSMSModal({ onClose }: SendBulkSMSModalProps) {
           placeholder="Type your message here..."
         />
         <p className="text-xs text-gray-500 mt-1">
-          Messages will be sent from short code {AT_CONFIG.SMS_SHORT_CODE}
+          Messages will be sent from short code {AT_CONFIG.SMS_SHORT_CODE} • {segmentInfo}
         </p>
       </div>
 
@@ -141,7 +150,7 @@ export default function SendBulkSMSModal({ onClose }: SendBulkSMSModalProps) {
         </button>
         <button
           onClick={handleSend}
-          disabled={isSending || !message.trim() || charCount > maxChars}
+          disabled={isSending || !message.trim()}
           className="px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 disabled:opacity-50"
         >
           {isSending ? 'Sending...' : `Send via ${AT_CONFIG.SMS_SHORT_CODE}`}

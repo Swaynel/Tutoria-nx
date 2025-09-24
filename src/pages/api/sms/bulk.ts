@@ -23,7 +23,38 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const { schoolId, message, recipientType } = req.body as BulkSMSRequest
 
+  // Authorization: ensure requester is authenticated and authorized
+  const authHeader = req.headers.authorization || ''
+  const token = authHeader.replace(/^Bearer\s+/i, '')
+  if (!token) {
+    return res.status(401).json({ error: 'Missing authorization token' })
+  }
+
+
   try {
+    const { data: userData, error: userErr } = await supabase.auth.getUser(token)
+    if (userErr || !userData?.user) {
+      return res.status(401).json({ error: 'Invalid or expired token' })
+    }
+
+    const userId = userData.user.id
+    const { data: profile, error: profileErr } = await supabase
+      .from('profiles')
+      .select('id, role, school_id')
+      .eq('id', userId)
+      .single()
+
+    if (profileErr || !profile) {
+      return res.status(403).json({ error: 'Profile not found or access denied' })
+    }
+
+    if (!(profile.role === 'superadmin' || profile.role === 'school_admin')) {
+      return res.status(403).json({ error: 'Insufficient permissions to send bulk SMS' })
+    }
+
+    if (!schoolId || !message) {
+      return res.status(400).json({ error: 'Missing required fields: schoolId, message' })
+    }
     if (!schoolId || !message) {
       return res.status(400).json({ error: 'Missing required fields: schoolId, message' })
     }

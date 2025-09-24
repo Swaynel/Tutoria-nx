@@ -1,14 +1,18 @@
 // src/pages/dashboard.tsx
 'use client';
 
-import { JSX, useEffect } from 'react';
+import { JSX, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { useAuthContext } from '../contexts/AuthContext';
 import { useDataContext } from '../contexts/DataContext';
 import { useModalContext } from '../contexts/ModalContext';
 import { AT_CONFIG } from '../lib/africastalking';
 import Button from '../components/ui/Button';
-import { Payment, AttendanceRecord, Message } from '../types';
+import { Payment, AttendanceRecord, Message, AppUser } from '../types';
+import SuperAdminDashboard from '../components/dashboards/SuperAdminDashboard';
+import SchoolAdminDashboard from '../components/dashboards/SchoolAdminDashboard';
+import TeacherDashboard from '../components/dashboards/TeacherDashboard';
+import ParentDashboard from '../components/dashboards/ParentDashboard';
 
 export default function Dashboard(): JSX.Element | null {
   const router = useRouter();
@@ -24,6 +28,31 @@ export default function Dashboard(): JSX.Element | null {
 
   const { openModal } = useModalContext();
 
+  // Memoized derived data (call hooks unconditionally to satisfy Rules of Hooks)
+  const today = useMemo(() => new Date().toISOString().split('T')[0], [])
+
+  const todaysAttendance = useMemo(
+    () => attendance.filter((a: AttendanceRecord) => a.date === today),
+    [attendance, today]
+  )
+
+  const presentCount = useMemo(
+    () => todaysAttendance.filter((a: AttendanceRecord) => a.status === 'present').length,
+    [todaysAttendance]
+  )
+
+  const attendanceRate = useMemo(
+    () => (todaysAttendance.length > 0 ? (presentCount / todaysAttendance.length) * 100 : 0),
+    [todaysAttendance.length, presentCount]
+  )
+
+  const totalPayments = useMemo(
+    () => payments.reduce((sum: number, payment: Payment) => sum + (payment.amount || 0), 0),
+    [payments]
+  )
+
+  const unreadMessages = useMemo(() => messages.filter((m: Message) => !m.read_at).length, [messages])
+
   useEffect(() => {
     if (!authLoading && !user) {
       void router.push('/login');
@@ -36,20 +65,23 @@ export default function Dashboard(): JSX.Element | null {
 
   if (!user) return null;
 
-  const today = new Date().toISOString().split('T')[0];
-  const todaysAttendance = attendance.filter((a: AttendanceRecord) => a.date === today);
-  const presentCount = todaysAttendance.filter((a: AttendanceRecord) => a.status === 'present').length;
-  const attendanceRate = todaysAttendance.length > 0 ? (presentCount / todaysAttendance.length) * 100 : 0;
-  const totalPayments = payments.reduce((sum: number, payment: Payment) => sum + (payment.amount || 0), 0);
-  const unreadMessages = messages.filter((m: Message) => !m.read_at).length;
-
   const openComposeMessageModal = (recipientId?: string): void => {
-    openModal('compose-message', { recipientId });
-  };
+    openModal('compose-message', { recipientId })
+  }
 
   const openRecordPaymentModal = (studentId?: string, amount: number = 0): void => {
-    openModal('record-payment', { studentId, amount });
-  };
+    openModal('record-payment', { studentId, amount })
+  }
+
+  // Role helpers
+  const role = (user as { role?: string })?.role || 'school_admin'
+  const isAdmin = role === 'superadmin' || role === 'school_admin'
+  const isTeacher = role === 'teacher'
+
+  // If user is superadmin render special console
+  if (role === 'superadmin') {
+    return <SuperAdminDashboard user={user as AppUser} />
+  }
 
   return (
     <div className="p-6">
@@ -67,9 +99,11 @@ export default function Dashboard(): JSX.Element | null {
                 Parents can dial <strong className="text-lg">{AT_CONFIG.USSD_SERVICE_CODE}</strong> to check attendance and fees
               </p>
             </div>
-            <Button onClick={() => openModal('bulk-sms', { target: 'parents' })} variant="secondary" size="sm">
-              Notify Parents
-            </Button>
+            {isAdmin && (
+              <Button onClick={() => openModal('bulk-sms', { target: 'parents' })} variant="secondary" size="sm">
+                Notify Parents
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -85,32 +119,39 @@ export default function Dashboard(): JSX.Element | null {
           <p className="text-sm text-gray-600">SMS or in-app</p>
         </button>
 
-        <button
-          onClick={() => openModal('bulk-sms', {})}
-          className="p-4 bg-white rounded-lg shadow border-2 border-transparent hover:border-indigo-500 transition-colors"
-        >
-          <div className="text-2xl mb-2">📢</div>
-          <h3 className="font-semibold">Bulk SMS</h3>
-          <p className="text-sm text-gray-600">School-wide alerts</p>
-        </button>
+        {isAdmin && (
+          <button
+            onClick={() => openModal('bulk-sms', {})}
+            className="p-4 bg-white rounded-lg shadow border-2 border-transparent hover:border-indigo-500 transition-colors"
+            aria-label="Send bulk SMS"
+          >
+            <div className="text-2xl mb-2">📢</div>
+            <h3 className="font-semibold">Bulk SMS</h3>
+            <p className="text-sm text-gray-600">School-wide alerts</p>
+          </button>
+        )}
 
-        <button
-          onClick={() => openModal('mark-attendance', {})}
-          className="p-4 bg-white rounded-lg shadow border-2 border-transparent hover:border-indigo-500 transition-colors"
-        >
-          <div className="text-2xl mb-2">📝</div>
-          <h3 className="font-semibold">Attendance</h3>
-          <p className="text-sm text-gray-600">Auto-SMS alerts</p>
-        </button>
+        {(isAdmin || isTeacher) && (
+          <button
+            onClick={() => openModal('mark-attendance', {})}
+            className="p-4 bg-white rounded-lg shadow border-2 border-transparent hover:border-indigo-500 transition-colors"
+          >
+            <div className="text-2xl mb-2">📝</div>
+            <h3 className="font-semibold">Attendance</h3>
+            <p className="text-sm text-gray-600">Auto-SMS alerts</p>
+          </button>
+        )}
 
-        <button
-          onClick={() => openRecordPaymentModal()}
-          className="p-4 bg-white rounded-lg shadow border-2 border-transparent hover:border-indigo-500 transition-colors"
-        >
-          <div className="text-2xl mb-2">💰</div>
-          <h3 className="font-semibold">Payments</h3>
-          <p className="text-sm text-gray-600">SMS confirmations</p>
-        </button>
+        {isAdmin && (
+          <button
+            onClick={() => openRecordPaymentModal()}
+            className="p-4 bg-white rounded-lg shadow border-2 border-transparent hover:border-indigo-500 transition-colors"
+          >
+            <div className="text-2xl mb-2">💰</div>
+            <h3 className="font-semibold">Payments</h3>
+            <p className="text-sm text-gray-600">SMS confirmations</p>
+          </button>
+        )}
       </div>
 
       {/* Metrics Cards */}
@@ -128,7 +169,7 @@ export default function Dashboard(): JSX.Element | null {
 
         <div className="bg-white p-6 rounded-lg shadow">
           <h3 className="text-lg font-semibold text-gray-900 mb-2">Total Payments</h3>
-          <p className="text-3xl font-bold text-amber-600">${totalPayments.toFixed(2)}</p>
+          <p className="text-3xl font-bold text-amber-600">{new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(totalPayments)}</p>
         </div>
 
         <div className="bg-white p-6 rounded-lg shadow">

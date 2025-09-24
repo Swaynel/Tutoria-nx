@@ -277,12 +277,12 @@ export default function CombinedSidebar() {
   type TabKey = 'navigation' | 'actions' | 'messages' | 'notifications';
 
   return (
-    <div className={`${isCollapsed ? 'w-16' : 'w-80'} bg-indigo-900 text-white flex flex-col transition-all duration-300 ease-in-out shadow-2xl border-r border-white/10`}>
+    <div className={`${isCollapsed ? 'w-16' : 'w-80'} bg-gradient-to-b from-gray-900 via-gray-800 to-black text-white flex flex-col transition-all duration-300 ease-in-out shadow-2xl border-r border-white/10`}>
       {/* Header */}
       <div className="p-4 border-b border-white/10 backdrop-blur-sm bg-white/5">
         <div className="flex items-center justify-between">
           <div className={`flex items-center space-x-3 ${isCollapsed ? 'justify-center' : ''}`}>
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-white shadow-lg bg-emerald-500">T</div>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-white shadow-lg bg-emerald-600">T</div>
             {!isCollapsed && (
               <div>
                 <h1 className="text-xl font-bold text-white">Tuitora</h1>
@@ -501,44 +501,44 @@ export default function CombinedSidebar() {
 
       {/* User Info Footer */}
       <div className="p-4 border-t border-white/10 backdrop-blur-sm bg-white/5">
-        {isCollapsed ? (
-          <div className="flex justify-center">
-            <div className="w-8 h-8 rounded-full flex items-center justify-center text-gray-900 font-medium text-sm shadow-lg bg-gray-100">
-              {user?.full_name?.charAt(0) || user?.email?.charAt(0) || '?'}
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded-full flex items-center justify-center text-gray-900 font-medium shadow-lg flex-shrink-0 bg-gray-100">
+          {isCollapsed ? (
+            <div className="flex justify-center">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center text-gray-900 font-medium text-sm shadow-lg bg-gray-100">
                 {user?.full_name?.charAt(0) || user?.email?.charAt(0) || '?'}
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-white truncate">
-                  {user?.full_name || user?.email || 'Unknown User'}
-                </p>
-                <div className="flex items-center space-x-2 mt-1">
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getRoleColor(user?.role || 'student')}`}>
-                    {getRoleBadge(user?.role || 'student')}
-                  </span>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-full flex items-center justify-center text-gray-900 font-medium shadow-lg flex-shrink-0 bg-gray-100">
+                  {user?.full_name?.charAt(0) || user?.email?.charAt(0) || '?'}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-white truncate">
+                    {user?.full_name || user?.email || 'Unknown User'}
+                  </p>
+                  <div className="flex items-center space-x-2 mt-1">
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getRoleColor(user?.role || 'student')}`}>
+                      {getRoleBadge(user?.role || 'student')}
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2 pt-3 border-t border-white/10">
-              <div className="text-center">
-                <div className="text-sm font-semibold text-emerald-400">124</div>
-                <div className="text-xs text-gray-300">Active</div>
+              <div className="grid grid-cols-2 gap-2 pt-3 border-t border-white/10">
+                <div className="text-center">
+                  <div className="text-sm font-semibold text-emerald-400">124</div>
+                  <div className="text-xs text-gray-300">Active</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-sm font-semibold text-blue-400">8</div>
+                  <div className="text-xs text-gray-300">Pending</div>
+                </div>
               </div>
-              <div className="text-center">
-                <div className="text-sm font-semibold text-blue-400">8</div>
-                <div className="text-xs text-gray-300">Pending</div>
+              <div className="text-center text-xs text-gray-400 pt-2 border-t border-white/10">
+                {new Date().toLocaleDateString()}
               </div>
             </div>
-            <div className="text-center text-xs text-gray-400 pt-2 border-t border-white/10">
-              {new Date().toLocaleDateString()}
-            </div>
-          </div>
-        )}
+          )}
       </div>
     </div>
   );

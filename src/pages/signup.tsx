@@ -12,7 +12,7 @@ interface FormData {
   confirmPassword: string
   fullName: string
   schoolName: string
-  role?: 'school_admin' | 'teacher' | 'parent' | 'super_admin'
+  role?: 'school_admin' | 'teacher' | 'parent' | 'student' | 'superadmin'
   phone?: string
 }
 
@@ -139,12 +139,10 @@ export default function Signup() {
             full_name: formData.fullName,
             school_name: formData.schoolName,
             role: formData.role,
-            phone: formData.phone
+            phone: formData.phone,
           }
         }
       })
-
-      console.log('📝 Signup response:', { signUpData, signUpError })
 
       if (signUpError) {
         throw new Error(signUpError.message)
@@ -253,7 +251,7 @@ export default function Signup() {
             </div>
           )}
 
-          <div className="space-y-4">
+      <div className="space-y-4 text-gray-200">
             <div>
               <label htmlFor="fullName" className="block text-sm font-medium text-gray-700 mb-1">
                 Full Name
@@ -267,7 +265,7 @@ export default function Signup() {
                 value={formData.fullName}
                 onChange={handleInputChange}
                 disabled={loading}
-                className="appearance-none block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm disabled:bg-gray-100"
+                className="appearance-none block w-full px-3 py-2 border border-gray-700 bg-gray-900 placeholder-gray-400 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500 sm:text-sm disabled:bg-gray-800"
               />
             </div>
 
@@ -301,6 +299,7 @@ export default function Signup() {
                 <option value="school_admin">School Admin</option>
                 <option value="teacher">Teacher</option>
                 <option value="parent">Parent</option>
+                <option value="student">Student</option>
               </select>
             </div>
 
@@ -391,7 +390,7 @@ export default function Signup() {
             <button
               type="submit"
               disabled={loading}
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-emerald-600 hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {loading ? (
                 <div className="flex items-center">

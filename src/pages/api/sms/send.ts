@@ -1,5 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next'
 import { supabase } from '../../../lib/supabase'
+import { sendSMS as sendSMSProvider } from '../../../lib/africastalking'
 
 import { ApiResponse } from '../../../types'
 
@@ -126,8 +127,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       })
     }
 
-    let smsResult: SMSResult | undefined = undefined
-    let whatsappResult: WhatsAppResult | undefined = undefined
+  type SMSApiResult = { success: boolean; messageId?: string; error?: string }
+  let smsResult: SMSApiResult | undefined = undefined
+  let whatsappResult: WhatsAppResult | undefined = undefined
 
     // Send via SMS/WhatsApp if requested
     if (sendSMS || sendWhatsApp) {
@@ -139,31 +141,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         // Send SMS using your existing SMS API
         if (sendSMS) {
           try {
-            const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000'
-            const smsResponse = await fetch(`${baseUrl}/api/sms/send`, {
-              method: 'POST',
-              headers: { 
-                'Content-Type': 'application/json',
-                'x-user-id': userId
-              },
-              body: JSON.stringify({
-                to: [recipientPhone],
-                message: `${subject ? subject + ': ' : ''}${message}`,
-                messageType: 'general',
-                schoolId
-              })
-            })
-
-            if (smsResponse.ok) {
-              smsResult = await smsResponse.json()
-            } else {
-              const errorData = await smsResponse.json()
-              console.warn('SMS sending failed:', errorData)
-              smsResult = { success: false, error: errorData.error }
-            }
+            // Directly send via africastalking helper on the server
+            const smsResults = await sendSMSProvider([recipientPhone], `${subject ? subject + ': ' : ''}${message}`)
+            // sendSMS returns an array of SMSResult
+            const first = Array.isArray(smsResults) ? smsResults[0] : undefined
+            smsResult = first
+              ? { success: first.success, messageId: first.messageId || '', error: first.error }
+              : { success: false, error: 'No result from SMS provider' }
           } catch (error) {
-            console.warn('SMS API call failed:', error)
-            smsResult = { success: false, error: 'SMS API call failed' }
+            console.warn('SMS send failed:', error)
+            smsResult = { success: false, error: 'SMS send failed' }
           }
         }
 
