@@ -31,14 +31,15 @@ export interface School {
   updated_at?: string;
 }
 
+// Note: Parent information is stored in parent_student_relationships table
+// Student contact info is stored in the profiles table
 export interface Student {
-  status: string;
   id: string;
   school_id: string;
   name: string;
-  grade: string;
-  date_of_birth?: string;
-  parent_id?: string;
+  grade: string | null;
+  date_of_birth?: string | null;
+  is_active: boolean;
   created_at: string;
   updated_at?: string;
 }

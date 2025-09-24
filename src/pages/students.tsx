@@ -47,8 +47,8 @@ export default function Students(): ReactElement {
       id: crypto.randomUUID(),
       name: newStudentName,
       grade: newStudentGrade,
-      status: 'active',
-      date_of_birth: undefined,
+      is_active: true,
+      date_of_birth: null,
       created_at: new Date().toISOString(),
       school_id: school_id!,
     }
@@ -58,8 +58,8 @@ export default function Students(): ReactElement {
       await addStudent({
         name: newStudentName,
         grade: newStudentGrade,
-        status: 'active',
-        date_of_birth: undefined,
+        is_active: true,
+        date_of_birth: null,
       })
 
       // Optimistic UI update
@@ -74,9 +74,8 @@ export default function Students(): ReactElement {
   if (loading) return <div className="p-6">Loading students...</div>
 
   const totalStudents = localStudents.length
-  const activeStudents = localStudents.filter(s => s.status === 'active' || !s.status).length
-  const inactiveStudents = localStudents.filter(s => s.status === 'inactive').length
-  const graduatedStudents = localStudents.filter(s => s.status === 'graduated').length
+  const activeStudents = localStudents.filter(s => s.is_active).length
+  const inactiveStudents = localStudents.filter(s => !s.is_active).length
 
   return (
     <div className="p-6">
@@ -95,10 +94,6 @@ export default function Students(): ReactElement {
         <div className="bg-white p-6 rounded-lg shadow">
           <h3 className="text-lg font-semibold text-gray-900 mb-2">Inactive</h3>
           <p className="text-3xl font-bold text-red-600">{inactiveStudents}</p>
-        </div>
-        <div className="bg-white p-6 rounded-lg shadow">
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">Graduated</h3>
-          <p className="text-3xl font-bold text-purple-600">{graduatedStudents}</p>
         </div>
       </div>
 
@@ -144,14 +139,12 @@ export default function Students(): ReactElement {
                       <td className="px-6 py-4">
                         <span
                           className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                            student.status === 'active'
+                            student.is_active
                               ? 'bg-green-100 text-green-800'
-                              : student.status === 'inactive'
-                              ? 'bg-red-100 text-red-800'
-                              : 'bg-purple-100 text-purple-800'
+                              : 'bg-red-100 text-red-800'
                           }`}
                         >
-                          {student.status || 'active'}
+                          {student.is_active ? 'active' : 'inactive'}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-500">{formatDate(student.created_at)}</td>

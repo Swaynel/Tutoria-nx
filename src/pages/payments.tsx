@@ -23,7 +23,7 @@ export default function Payments(): ReactElement {
 
   const getStudentName = (student_id: string) => {
     const student = students?.find((s) => s.id === student_id)
-    return student ? student.name : student_id
+    return student?.name ?? student_id
   }
 
   const isOverdue = (payment: Payment) => {

@@ -1,71 +1,194 @@
 import { NextApiRequest, NextApiResponse } from 'next'
-import { sendSMS, formatPhoneNumber, AT_CONFIG } from '../../../lib/africastalking'
 import { supabase } from '../../../lib/supabase'
 
-interface SMSRequest {
-  to: string[]
+import { ApiResponse } from '../../../types'
+
+interface SendMessageRequest {
+  schoolId: string
+  recipientId: string
+  recipientType: 'student' | 'parent' | 'teacher'
+  subject: string
   message: string
-  messageType?: 'attendance' | 'payment' | 'general'
-  schoolId?: string
+  sendSMS?: boolean
+  sendWhatsApp?: boolean
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+type SMSResult = ApiResponse<{ messageId: string }>
+
+type WhatsAppResult = ApiResponse<{ message: string }>
+
+type MessageResponse = ApiResponse<{
+  messageId: string
+  smsResult?: SMSResult
+  whatsappResult?: WhatsAppResult
+}>
+
+// Helper function to get recipient phone number
+async function getRecipientPhone(recipientId: string, recipientType: string, schoolId: string): Promise<string | null> {
+  try {
+    if (recipientType === 'parent') {
+      const studentId = recipientId.startsWith('parent_') ? recipientId.replace('parent_', '') : recipientId
+      
+      const { data: student } = await supabase
+        .from('students')
+        .select('parent_phone')
+        .eq('id', studentId)
+        .eq('school_id', schoolId)
+        .single()
+      
+      return student?.parent_phone || null
+    }
+    
+    if (recipientType === 'student') {
+      const { data: student } = await supabase
+        .from('students')
+        .select('phone')
+        .eq('id', recipientId)
+        .eq('school_id', schoolId)
+        .single()
+      
+      return student?.phone || null
+    }
+    
+    if (recipientType === 'teacher') {
+      const { data: user } = await supabase
+        .from('users')
+        .select('phone')
+        .eq('id', recipientId)
+        .eq('school_id', schoolId)
+        .single()
+      
+      return user?.phone || null
+    }
+    
+    return null
+  } catch (error) {
+    console.error('Error getting recipient phone:', error)
+    return null
+  }
+}
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse<MessageResponse>) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ message: 'Method not allowed' })
+    return res.status(405).json({ success: false, error: 'Method not allowed' })
   }
 
-  const { to, message, messageType = 'general', schoolId }: SMSRequest = req.body
-
   try {
-    if (!to || !message) {
-      return res.status(400).json({ error: 'Missing required fields: to, message' })
+    const {
+      schoolId,
+      recipientId,
+      recipientType,
+      subject,
+      message,
+      sendSMS = false,
+      sendWhatsApp = false
+    }: SendMessageRequest = req.body
+
+    // Validate required fields
+    if (!schoolId || !recipientId || !message) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: schoolId, recipientId, and message'
+      })
     }
 
-    // Validate phone numbers
-    const formattedNumbers = to.map(formatPhoneNumber).filter(phone => {
-      return phone.startsWith('+254') && phone.length === 13
-    })
-
-    if (formattedNumbers.length === 0) {
-      return res.status(400).json({ error: 'No valid Kenyan phone numbers provided' })
+    // Get the current user from headers
+    const userId = req.headers['x-user-id'] as string
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User authentication required'
+      })
     }
 
-    // Add SMS branding
-    const brandedMessage = `Tuitora: ${message}\nReply STOP to opt-out`
+    // Save message to database first
+    const { data: savedMessage, error: dbError } = await supabase
+      .from('messages')
+      .insert([
+        {
+          school_id: schoolId,
+          sender_id: userId,
+          recipient_id: recipientId,
+          subject: subject || 'No Subject',
+          content: message,
+          sent_at: new Date().toISOString(),
+          read_at: null
+        }
+      ])
+      .select()
+      .single()
 
-    const results = await sendSMS(formattedNumbers, brandedMessage)
+    if (dbError) {
+      console.error('Database error:', dbError)
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to save message to database',
+      })
+    }
 
-    // Log SMS activity
-    if (schoolId) {
-      await supabase
-        .from('audit_logs')
-        .insert([
-          {
-            action: 'SMS_SENT',
-            table_name: 'messages',
-            user_id: req.headers['x-user-id'] as string,
-            new_data: {
-              recipients: formattedNumbers.length,
-              message_type: messageType,
-              school_id: schoolId,
-              results
+    let smsResult: SMSResult | undefined = undefined
+    let whatsappResult: WhatsAppResult | undefined = undefined
+
+    // Send via SMS/WhatsApp if requested
+    if (sendSMS || sendWhatsApp) {
+      const recipientPhone = await getRecipientPhone(recipientId, recipientType, schoolId)
+      
+      if (!recipientPhone) {
+        console.warn(`No phone number found for recipient ${recipientId}`)
+      } else {
+        // Send SMS using your existing SMS API
+        if (sendSMS) {
+          try {
+            const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000'
+            const smsResponse = await fetch(`${baseUrl}/api/sms/send`, {
+              method: 'POST',
+              headers: { 
+                'Content-Type': 'application/json',
+                'x-user-id': userId
+              },
+              body: JSON.stringify({
+                to: [recipientPhone],
+                message: `${subject ? subject + ': ' : ''}${message}`,
+                messageType: 'general',
+                schoolId
+              })
+            })
+
+            if (smsResponse.ok) {
+              smsResult = await smsResponse.json()
+            } else {
+              const errorData = await smsResponse.json()
+              console.warn('SMS sending failed:', errorData)
+              smsResult = { success: false, error: errorData.error }
             }
+          } catch (error) {
+            console.warn('SMS API call failed:', error)
+            smsResult = { success: false, error: 'SMS API call failed' }
           }
-        ])
+        }
+
+        // WhatsApp sending (placeholder for now)
+        if (sendWhatsApp) {
+          console.log('WhatsApp sending not yet implemented')
+          whatsappResult = { success: false, error: 'WhatsApp not implemented yet' }
+        }
+      }
     }
 
-    res.status(200).json({ 
-      success: true, 
-      results,
-      sent: formattedNumbers.length,
-      message: `SMS sent via short code ${AT_CONFIG.SMS_SHORT_CODE}`
+    return res.status(200).json({
+      success: true,
+      data: {
+        messageId: savedMessage.id,
+        smsResult,
+        whatsappResult
+      }
     })
-  } catch (error: unknown) {
-    const errMessage = error instanceof Error ? error.message : String(error)
-    console.error('SMS sending error:', errMessage)
-    res.status(500).json({ 
-      error: 'Failed to send SMS',
-      details: process.env.NODE_ENV === 'development' ? errMessage : undefined
+
+  } catch (error) {
+    console.error('Error in send message API:', error)
+    return res.status(500).json({
+      success: false,
+      error: 'Internal server error'
     })
   }
 }

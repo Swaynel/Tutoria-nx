@@ -47,12 +47,24 @@ const mockPayments: Payment[] = [
 ]
 const mockStudents: Student[] = [
   {
-    id: 'STU001', school_id: 'mock-school', name: 'John Doe', grade: '10th Grade', date_of_birth: '2008-03-15', created_at: '2024-01-01T00:00:00Z',
-    status: ''
+    id: 'STU001',
+    school_id: 'mock-school',
+    name: 'John Doe',
+    grade: '10th Grade',
+    date_of_birth: '2008-03-15',
+    is_active: true,
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-01T00:00:00Z'
   },
   {
-    id: 'STU002', school_id: 'mock-school', name: 'Jane Smith', grade: '11th Grade', date_of_birth: '2007-07-22', created_at: '2024-01-01T00:00:00Z',
-    status: ''
+    id: 'STU002',
+    school_id: 'mock-school',
+    name: 'Jane Smith',
+    grade: '11th Grade',
+    date_of_birth: '2007-07-22',
+    is_active: true,
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-01T00:00:00Z'
   },
 ]
 const mockAttendance: AttendanceRecord[] = [
@@ -206,11 +218,15 @@ export function DataProvider({ children }: DataProviderProps) {
     if (error) throw error
   }, [])
 
-  const addStudent = useCallback(async (student: Omit<Student, 'id' | 'created_at' | 'school_id'>) => {
+  const addStudent = useCallback(async (student: Omit<Student, 'id' | 'created_at' | 'school_id' | 'updated_at'>) => {
     if (!school_id) throw new Error('Cannot add student: User has no school ID.')
     const { error } = await supabase
       .from('students')
-      .insert({ ...student, school_id } as unknown as Record<string, unknown>)
+      .insert({ 
+        ...student,
+        school_id,
+        is_active: student.is_active ?? true // Set default if not provided
+      })
       .select()
       .single()
     if (error) throw error

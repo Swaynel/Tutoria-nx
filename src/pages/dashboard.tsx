@@ -8,7 +8,7 @@ import { useDataContext } from '../contexts/DataContext';
 import { useModalContext } from '../contexts/ModalContext';
 import { AT_CONFIG } from '../lib/africastalking';
 import Button from '../components/ui/Button';
-import { Payment, Student, AttendanceRecord, Message } from '../types';
+import { Payment, AttendanceRecord, Message } from '../types';
 
 export default function Dashboard(): JSX.Element | null {
   const router = useRouter();
@@ -20,13 +20,7 @@ export default function Dashboard(): JSX.Element | null {
     payments,
     messages,
     loading: dataLoading,
-  } = useDataContext() as {
-    students: Student[];
-    attendance: AttendanceRecord[];
-    payments: Payment[];
-    messages: Message[];
-    loading: boolean;
-  };
+  } = useDataContext();
 
   const { openModal } = useModalContext();
 
@@ -43,11 +37,11 @@ export default function Dashboard(): JSX.Element | null {
   if (!user) return null;
 
   const today = new Date().toISOString().split('T')[0];
-  const todaysAttendance = attendance.filter((a) => a.date === today);
-  const presentCount = todaysAttendance.filter((a) => a.status === 'present').length;
+  const todaysAttendance = attendance.filter((a: AttendanceRecord) => a.date === today);
+  const presentCount = todaysAttendance.filter((a: AttendanceRecord) => a.status === 'present').length;
   const attendanceRate = todaysAttendance.length > 0 ? (presentCount / todaysAttendance.length) * 100 : 0;
-  const totalPayments = payments.reduce((sum, payment) => sum + (payment.amount || 0), 0);
-  const unreadMessages = messages.filter((m) => !m.read_at).length;
+  const totalPayments = payments.reduce((sum: number, payment: Payment) => sum + (payment.amount || 0), 0);
+  const unreadMessages = messages.filter((m: Message) => !m.read_at).length;
 
   const openComposeMessageModal = (recipientId?: string): void => {
     openModal('compose-message', { recipientId });
@@ -163,7 +157,7 @@ export default function Dashboard(): JSX.Element | null {
 
           <div className="space-y-3">
             {messages.length > 0 ? (
-              messages.slice(0, 5).map((message) => (
+              messages.slice(0, 5).map((message: Message) => (
                 <div key={message.id} className="p-3 bg-gray-50 rounded">
                   <p className="font-medium">{message.subject}</p>
                   <p className="text-sm text-gray-600 truncate">{message.content}</p>
@@ -194,7 +188,7 @@ export default function Dashboard(): JSX.Element | null {
 
           <div className="space-y-3">
             {payments.length > 0 ? (
-              payments.slice(0, 5).map((payment) => (
+              payments.slice(0, 5).map((payment: Payment) => (
                 <div key={payment.id} className="p-3 bg-gray-50 rounded">
                   <div className="flex justify-between items-center">
                     <p className="font-medium">${(payment.amount || 0).toFixed(2)}</p>
