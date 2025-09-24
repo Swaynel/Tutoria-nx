@@ -391,10 +391,23 @@ const getAttendanceViaUSSD = async (phone?: string, inputs?: string[]): Promise<
       return `ATTENDANCE SUMMARY:\nNo student found for this phone number.\n0. Back\n00. Main Menu`
     }
 
-    // If multiple students, and only main menu selected (inputs length === 1), show selection menu
+    // If multiple students, and only main menu selected (inputs length === 1), show selection menu with real names
     if (studentIds.length > 1 && (!inputs || inputs.length === 1)) {
-      const list = studentIds.map((id, idx) => `${idx + 1}. Student ${idx + 1}`).join('\n')
-      return `MULTIPLE STUDENTS FOUND:\n${list}\nSelect a number to view that student's attendance\n0. Back\n00. Main Menu`
+      try {
+        type StudentRow = { id: string; name?: string }
+        const { data: stuRows } = await supabase.from('students').select('id, name').in('id', studentIds)
+        const ordered = studentIds.map((id, idx) => {
+          const found = (stuRows as StudentRow[] | null)?.find((s) => s.id === id)
+          const display = found?.name || `Student ${idx + 1}`
+          return `${idx + 1}. ${display}`
+        })
+        const list = ordered.join('\n')
+        return `MULTIPLE STUDENTS FOUND:\n${list}\nSelect a number to view that student's attendance\n0. Back\n00. Main Menu`
+      } catch (err) {
+        console.error('Failed to fetch student names for USSD selection:', err)
+        const list = studentIds.map((id, idx) => `${idx + 1}. Student ${idx + 1}`).join('\n')
+        return `MULTIPLE STUDENTS FOUND:\n${list}\nSelect a number to view that student's attendance\n0. Back\n00. Main Menu`
+      }
     }
 
     // If selection provided (e.g., inputs[1] = '2'), pick that student
@@ -404,6 +417,35 @@ const getAttendanceViaUSSD = async (phone?: string, inputs?: string[]): Promise<
       if (!Number.isNaN(sel) && sel >= 1 && sel <= studentIds.length) {
         chosenStudentId = studentIds[sel - 1]
       }
+    }
+
+    // Fetch student record to determine school
+    type StudentRowFull = { id: string; name?: string; school_id?: string }
+    const { data: studentRow, error: studErr } = await supabase
+      .from('students')
+      .select('id, name, school_id')
+      .eq('id', chosenStudentId)
+      .single()
+    if (studErr) throw studErr
+
+    const schoolId = (studentRow as StudentRowFull | null)?.school_id || null
+    if (!schoolId) {
+      return `ATTENDANCE SUMMARY:\nNo school assigned to this student. Please contact your school admin.\n0. Back\n00. Main Menu`
+    }
+
+    // Check if the school is premium
+    type SchoolRow = { id: string; name?: string; is_premium?: boolean }
+    const { data: schoolRow, error: schoolErr } = await supabase
+      .from('schools')
+      .select('id, name, is_premium')
+      .eq('id', schoolId)
+      .single()
+    if (schoolErr) throw schoolErr
+
+    if (!schoolRow || !schoolRow.is_premium) {
+      // Upsell message for non-premium schools
+      const schoolName = schoolRow?.name || 'your school'
+      return `TUITORA PREMIUM REQUIRED:\nThe USSD attendance feature is available for Tuitora Premium schools.\\nTo upgrade ${schoolName}, visit:\nhttps://tuitora.com/pricing\nOr contact sales: +254700000000\n0. Back\n00. Main Menu`
     }
 
     // Fetch recent attendance records for these students (last 30 days)
@@ -418,9 +460,9 @@ const getAttendanceViaUSSD = async (phone?: string, inputs?: string[]): Promise<
 
     if (attError) throw attError
 
-  const present = (attendanceRows as AttendanceRow[] | null || []).filter((r) => r.status === 'present').length
-  const absent = (attendanceRows as AttendanceRow[] | null || []).filter((r) => r.status === 'absent').length
-  const late = (attendanceRows as AttendanceRow[] | null || []).filter((r) => r.status === 'late').length
+    const present = (attendanceRows as AttendanceRow[] | null || []).filter((r) => r.status === 'present').length
+    const absent = (attendanceRows as AttendanceRow[] | null || []).filter((r) => r.status === 'absent').length
+    const late = (attendanceRows as AttendanceRow[] | null || []).filter((r) => r.status === 'late').length
 
     return `ATTENDANCE SUMMARY:\nPresent: ${present} days\nAbsent: ${absent} days\nLate: ${late} days\nLast update: ${new Date().toLocaleDateString()}\n\n0. Back\n00. Main Menu`
   } catch (error) {
@@ -470,10 +512,23 @@ const getFeesViaUSSD = async (phone?: string, inputs?: string[]): Promise<string
       return `FEES SUMMARY:\nNo student found for this phone number.\n0. Back\n00. Main Menu`
     }
 
-    // Multi-student handling: if multiple studentIds and no selection provided, ask user to choose
+    // Multi-student handling: if multiple studentIds and no selection provided, ask user to choose (show names)
     if (studentIds.length > 1 && (!inputs || inputs.length === 1)) {
-      const list = studentIds.map((id, idx) => `${idx + 1}. Student ${idx + 1}`).join('\n')
-      return `MULTIPLE STUDENTS FOUND:\n${list}\nSelect a number to view that student's fees\n0. Back\n00. Main Menu`
+      try {
+        type StudentRow = { id: string; name?: string }
+        const { data: stuRows } = await supabase.from('students').select('id, name').in('id', studentIds)
+        const ordered = studentIds.map((id, idx) => {
+          const found = (stuRows as StudentRow[] | null)?.find((s) => s.id === id)
+          const display = found?.name || `Student ${idx + 1}`
+          return `${idx + 1}. ${display}`
+        })
+        const list = ordered.join('\n')
+        return `MULTIPLE STUDENTS FOUND:\n${list}\nSelect a number to view that student's fees\n0. Back\n00. Main Menu`
+      } catch (err) {
+        console.error('Failed to fetch student names for USSD fees selection:', err)
+        const list = studentIds.map((id, idx) => `${idx + 1}. Student ${idx + 1}`).join('\n')
+        return `MULTIPLE STUDENTS FOUND:\n${list}\nSelect a number to view that student's fees\n0. Back\n00. Main Menu`
+      }
     }
 
     // If a selection was provided, pick the specified student
@@ -485,6 +540,34 @@ const getFeesViaUSSD = async (phone?: string, inputs?: string[]): Promise<string
       }
     }
 
+    // Fetch student to determine school
+    type StudentRowFull = { id: string; name?: string; school_id?: string }
+    const { data: studentRow, error: studErr } = await supabase
+      .from('students')
+      .select('id, name, school_id')
+      .eq('id', chosen)
+      .single()
+    if (studErr) throw studErr
+
+    const schoolId = (studentRow as StudentRowFull | null)?.school_id || null
+    if (!schoolId) {
+      return `FEES SUMMARY:\nNo school assigned to this student. Please contact your school admin.\n0. Back\n00. Main Menu`
+    }
+
+    // Check if the school is premium
+    type SchoolRow = { id: string; name?: string; is_premium?: boolean }
+    const { data: schoolRow, error: schoolErr } = await supabase
+      .from('schools')
+      .select('id, name, is_premium')
+      .eq('id', schoolId)
+      .single()
+    if (schoolErr) throw schoolErr
+
+    if (!schoolRow || !schoolRow.is_premium) {
+      const schoolName = schoolRow?.name || 'your school'
+      return `TUITORA PREMIUM REQUIRED:\nThe USSD fees feature is available for Tuitora Premium schools.\nTo upgrade ${schoolName}, visit:\nhttps://tuitora.com/pricing\nOr contact sales: +254700000000\n0. Back\n00. Main Menu`
+    }
+
     // Calculate fees by summing payments and looking for expected fees
     const { data: paymentsRows, error: payErr } = await supabase
       .from('payments')
@@ -493,8 +576,8 @@ const getFeesViaUSSD = async (phone?: string, inputs?: string[]): Promise<string
 
     if (payErr) throw payErr
 
-  const paid = (paymentsRows as PaymentRow[] | null || []).filter((p) => p.status === 'paid').reduce((s: number, p) => s + (p.amount || 0), 0)
-  const due = (paymentsRows as PaymentRow[] | null || []).filter((p) => p.status !== 'paid').reduce((s: number, p) => s + (p.amount || 0), 0)
+    const paid = (paymentsRows as PaymentRow[] | null || []).filter((p) => p.status === 'paid').reduce((s: number, p) => s + (p.amount || 0), 0)
+    const due = (paymentsRows as PaymentRow[] | null || []).filter((p) => p.status !== 'paid').reduce((s: number, p) => s + (p.amount || 0), 0)
 
     return `FEES SUMMARY:\nTotal Due: KES ${due + paid}\nPaid: KES ${paid}\nBalance: KES ${due}\n\n0. Back\n00. Main Menu`
   } catch (error) {
