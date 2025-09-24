@@ -8,11 +8,8 @@ import { useDataContext } from '../contexts/DataContext';
 import { useModalContext } from '../contexts/ModalContext';
 import { AT_CONFIG } from '../lib/africastalking';
 import Button from '../components/ui/Button';
-import { Payment, AttendanceRecord, Message, AppUser } from '../types';
-import SuperAdminDashboard from '../components/dashboards/SuperAdminDashboard';
-import SchoolAdminDashboard from '../components/dashboards/SchoolAdminDashboard';
-import TeacherDashboard from '../components/dashboards/TeacherDashboard';
-import ParentDashboard from '../components/dashboards/ParentDashboard';
+import { Payment, AttendanceRecord, Message } from '../types';
+import { SuperAdminDashboard } from '../components/dashboards'
 
 export default function Dashboard(): JSX.Element | null {
   const router = useRouter();
@@ -80,7 +77,7 @@ export default function Dashboard(): JSX.Element | null {
 
   // If user is superadmin render special console
   if (role === 'superadmin') {
-    return <SuperAdminDashboard user={user as AppUser} />
+    return <SuperAdminDashboard />
   }
 
   return (

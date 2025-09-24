@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { supabase } from '../lib/supabase'
 
 // Mock components for demo
 const Link = ({
@@ -536,6 +537,22 @@ export default function CombinedSidebar() {
               </div>
               <div className="text-center text-xs text-gray-400 pt-2 border-t border-white/10">
                 {new Date().toLocaleDateString()}
+              </div>
+              <div className="pt-3">
+                <button
+                  onClick={async () => {
+                    try {
+                      await supabase.auth.signOut()
+                    } catch {
+                      // ignore - sign out best-effort
+                    }
+                    // redirect to login
+                    if (typeof window !== 'undefined') window.location.href = '/login'
+                  }}
+                  className="w-full text-sm py-2 rounded-lg bg-white/5 hover:bg-white/10 text-gray-200 transition-colors"
+                >
+                  Sign out
+                </button>
               </div>
             </div>
           )}
