@@ -160,12 +160,13 @@ export default function Signup() {
 
       // Redirect after success
       setTimeout(() => {
-        if (signUpData.user.email_confirmed_at) {
-          router.push('/dashboard')
-        } else {
-          router.push('/login?message=Please verify your email before signing in')
-        }
-      }, 3000)
+  if (signUpData.user?.email_confirmed_at) {
+    router.push('/dashboard')
+  } else {
+    router.push('/login?message=Please verify your email before signing in')
+  }
+}, 3000)
+
 
     } catch (err: unknown) {
       console.error('❌ Signup error:', err)

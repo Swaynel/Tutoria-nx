@@ -13,7 +13,7 @@ export default function RecordPaymentModal({ onClose }: RecordPaymentModalProps)
   const [description, setDescription] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const { user } = useAuthContext();
-  const { students, refreshData } = useDataContext();
+  const { students, refreshAllData } = useDataContext();
 
   const handleSubmit = async () => {
     if (!studentId || !amount || !description || !user) return;
@@ -45,8 +45,8 @@ export default function RecordPaymentModal({ onClose }: RecordPaymentModalProps)
         }),
       });
 
-      if (refreshData) {
-        await refreshData(); // Check if refreshData exists
+      if (refreshAllData) {
+        await refreshAllData(); // Check if refreshData exists
       } else {
         console.warn('refreshData is not defined in DataContext');
       }

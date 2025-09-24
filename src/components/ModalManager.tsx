@@ -1,42 +1,37 @@
-// components/ModalManager.tsx
-import { Fragment, ReactElement } from 'react'
+import { Fragment } from 'react'
 import { Dialog, Transition } from '@headlessui/react'
-import { useModalContext, ConfirmationModalProps } from '../contexts/ModalContext'
+import { useModalContext } from '../contexts/ModalContext'
 import ComposeMessageModal from './modals/ComposeMessageModal'
 import MarkAttendanceModal from './modals/MarkAttendanceModal'
 import RecordPaymentModal from './modals/RecordPaymentModal'
 import AddUserModal from './modals/AddUserModal'
 import ConfirmationModal from './modals/ConfirmationModal'
+import SendBulkSMSModal from './modals/SendBulkSMSModal'
 
-export default function ModalManager(): ReactElement {
-  const { isOpen, modalType, modalProps, closeModal } = useModalContext()
-  
-  const renderModalContent = (): ReactElement | null => {
+export default function ModalManager() {
+  const { isOpen, modalState, closeModal } = useModalContext()
+  const { modalType, modalProps } = modalState
+
+  const renderModalContent = () => {
     switch (modalType) {
       case 'compose-message':
-        return <ComposeMessageModal onClose={closeModal} />
-        
+        return <ComposeMessageModal onClose={closeModal} {...modalProps} />
+      case 'bulk-sms':
+        return <SendBulkSMSModal onClose={closeModal} {...modalProps} />
       case 'mark-attendance':
-        return <MarkAttendanceModal onClose={closeModal} />
-        
+        return <MarkAttendanceModal onClose={closeModal} {...modalProps} />
       case 'record-payment':
-        return <RecordPaymentModal onClose={closeModal} />
-        
+        return <RecordPaymentModal onClose={closeModal} {...modalProps} />
       case 'add-user':
-        return <AddUserModal onClose={closeModal} />
-        
-      case 'confirmation': {
-        const confirmationProps = modalProps as ConfirmationModalProps
+        return <AddUserModal onClose={closeModal} {...modalProps} />
+      case 'confirmation':
         return (
-          <ConfirmationModal 
-            onClose={closeModal} 
-            title={confirmationProps.title} 
-            message={confirmationProps.message} 
-            onConfirm={confirmationProps.onConfirm} 
-          />
+          <ConfirmationModal
+            title={''} message={''} onConfirm={function (): void {
+              throw new Error('Function not implemented.')
+            } } onClose={closeModal}
+            {...modalProps}          />
         )
-      }
-        
       default:
         return null
     }

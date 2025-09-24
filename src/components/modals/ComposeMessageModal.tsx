@@ -15,7 +15,7 @@ export default function ComposeMessageModal({ onClose }: ComposeMessageModalProp
   const [viaWhatsApp, setViaWhatsApp] = useState(false)
   const [isSending, setIsSending] = useState(false)
   const { user } = useAuthContext()
-  const { refreshData } = useDataContext() // fixed here
+  const { refreshAllData } = useDataContext() // fixed here
 
   const handleSend = async () => {
     if (!recipientId || !message || !user) return
@@ -52,7 +52,7 @@ export default function ComposeMessageModal({ onClose }: ComposeMessageModalProp
         })
       }
 
-      await refreshData?.() // call the correct method
+      await refreshAllData?.() // call the correct method
       onClose()
     } catch (error) {
       console.error('Error sending message:', error)

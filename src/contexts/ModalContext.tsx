@@ -1,88 +1,57 @@
-// contexts/ModalContext.tsx
 import { createContext, useContext, useState, ReactNode } from 'react'
 
-// Define specific modal types for better type safety
+// Define specific modal types
 export type ModalType =
   | 'compose-message'
+  | 'bulk-sms'
   | 'mark-attendance'
   | 'record-payment'
   | 'add-user'
   | 'confirmation'
   | null
 
-// Define props per modal type
-export interface ConfirmationModalProps {
-  title: string
-  message: string
-  onConfirm: () => void
-}
+// Generic modal props type
+export type ModalProps = Record<string, unknown>
 
-type ModalPropsMap = {
-  'compose-message': { recipientId: string }
-  'mark-attendance': { studentId: string; date: string }
-  'record-payment': { studentId: string; amount: number }
-  'add-user': { role: string }
-  'confirmation': ConfirmationModalProps
-}
-
-// A base type that extracts the props for a given modal type
-export type BaseModalProps<T extends ModalType = ModalType> =
-  T extends keyof ModalPropsMap ? ModalPropsMap[T] : Record<string, never>
-
-// Context type
-export interface ModalContextType {
-  isOpen: boolean
+interface ModalState {
   modalType: ModalType
-  modalProps: BaseModalProps
-  openModal: <T extends Exclude<ModalType, null>>(
-    type: T,
-    props: BaseModalProps<T>
-  ) => void
+  modalProps: ModalProps
+}
+
+interface ModalContextValue {
+  isOpen: boolean
+  modalState: ModalState
+  openModal: (modalType: ModalType, modalProps?: ModalProps) => void
   closeModal: () => void
 }
 
-const ModalContext = createContext<ModalContextType | undefined>(undefined)
+const ModalContext = createContext<ModalContextValue | undefined>(undefined)
 
-interface ModalProviderProps {
-  children: ReactNode
-}
-
-export function ModalProvider({ children }: ModalProviderProps) {
+export const ModalProvider = ({ children }: { children: ReactNode }) => {
   const [isOpen, setIsOpen] = useState(false)
-  const [modalType, setModalType] = useState<ModalType>(null)
-  const [modalProps, setModalProps] = useState<BaseModalProps>({})
+  const [modalState, setModalState] = useState<ModalState>({
+    modalType: null,
+    modalProps: {},
+  })
 
-  const openModal = <T extends Exclude<ModalType, null>>(
-    type: T,
-    props: BaseModalProps<T>
-  ): void => {
-    setModalType(type)
-    setModalProps(props)
+  const openModal = (modalType: ModalType, modalProps: ModalProps = {}) => {
+    setModalState({ modalType, modalProps })
     setIsOpen(true)
   }
 
-  const closeModal = (): void => {
+  const closeModal = () => {
     setIsOpen(false)
-    setModalType(null)
-    setModalProps({})
-  }
-
-  const value: ModalContextType = {
-    isOpen,
-    modalType,
-    modalProps,
-    openModal,
-    closeModal,
+    setModalState({ modalType: null, modalProps: {} })
   }
 
   return (
-    <ModalContext.Provider value={value}>
+    <ModalContext.Provider value={{ isOpen, modalState, openModal, closeModal }}>
       {children}
     </ModalContext.Provider>
   )
 }
 
-export function useModalContext(): ModalContextType {
+export const useModalContext = () => {
   const context = useContext(ModalContext)
   if (!context) {
     throw new Error('useModalContext must be used within a ModalProvider')

@@ -7,7 +7,7 @@ import { formatDate } from '../lib/utils'
 // Complete Attendance interface
 interface Attendance {
   id: string
-  studentId: string // use student_id if your backend is snake_case
+  student_id: string // use student_id if your backend is snake_case
   date: string // ISO date string
   status: 'present' | 'absent' | 'late'
   createdAt?: string
@@ -96,7 +96,7 @@ export default function Attendance(): ReactElement {
                         {formatDate ? formatDate(record.date) : new Date(record.date).toLocaleDateString()}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {record.studentId}
+                        {record.student_id}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span

@@ -1,50 +1,86 @@
-// pages/students.tsx
-import { ReactElement } from 'react'
+import { ReactElement, useState, useEffect, useRef } from 'react'
 import { useDataContext } from '../contexts/DataContext'
 import { formatDate } from '../lib/utils'
-
-interface Student {
-  id: string
-  name: string
-  email: string
-  phone?: string
-  grade?: string
-  dateOfBirth?: string
-  parentName?: string
-  parentPhone?: string
-  address?: string
-  enrollmentDate?: string
-  status?: 'active' | 'inactive' | 'graduated'
-  createdAt?: string
-  updatedAt?: string
-}
+import { Student } from '../types'
 
 export default function Students(): ReactElement {
-  const { students, loading } = useDataContext()
+  const { students, addStudent, school_id, loading } = useDataContext()
+  const [localStudents, setLocalStudents] = useState<Student[]>(students || [])
 
-  if (loading) {
-    return <div className="p-6">Loading students...</div>
+  // Sync local copy with context whenever students change
+  useEffect(() => {
+    setLocalStudents(students)
+  }, [students])
+
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [newStudentName, setNewStudentName] = useState('')
+  const [newStudentGrade, setNewStudentGrade] = useState('')
+  const firstInputRef = useRef<HTMLInputElement>(null)
+
+  const openModal = () => setIsModalOpen(true)
+  const closeModal = () => {
+    setIsModalOpen(false)
+    setNewStudentName('')
+    setNewStudentGrade('')
   }
 
-  const studentsArray: Student[] = Array.isArray(students) ? students : []
+  useEffect(() => {
+    if (isModalOpen && firstInputRef.current) {
+      firstInputRef.current.focus()
+    }
+  }, [isModalOpen])
 
-  const totalStudents = studentsArray.length
-  const activeStudents = studentsArray.filter(student => student.status === 'active' || !student.status).length
-  const inactiveStudents = studentsArray.filter(student => student.status === 'inactive').length
-  const graduatedStudents = studentsArray.filter(student => student.status === 'graduated').length
+  // Close modal on Esc key
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeModal()
+    }
+    window.addEventListener('keydown', handleEsc)
+    return () => window.removeEventListener('keydown', handleEsc)
+  }, [])
 
-  const gradeGroups = studentsArray.reduce((acc, student) => {
-    const grade = student.grade || 'Unassigned'
-    acc[grade] = (acc[grade] || 0) + 1
-    return acc
-  }, {} as Record<string, number>)
+  const handleAddStudent = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newStudentName || !newStudentGrade) return
+
+    const newStudent: Student = {
+      id: crypto.randomUUID(),
+      name: newStudentName,
+      grade: newStudentGrade,
+      status: 'active',
+      date_of_birth: undefined,
+      created_at: new Date().toISOString(),
+      school_id: school_id!,
+    }
+
+    try {
+      // Add student to backend
+      await addStudent({
+        name: newStudentName,
+        grade: newStudentGrade,
+        status: 'active',
+        date_of_birth: undefined,
+      })
+
+      // Optimistic UI update
+      setLocalStudents((prev: Student[]) => [...prev, newStudent])
+      closeModal()
+    } catch (err) {
+      console.error('Failed to add student:', err)
+      alert('Error adding student. Check console.')
+    }
+  }
+
+  if (loading) return <div className="p-6">Loading students...</div>
+
+  const totalStudents = localStudents.length
+  const activeStudents = localStudents.filter(s => s.status === 'active' || !s.status).length
+  const inactiveStudents = localStudents.filter(s => s.status === 'inactive').length
+  const graduatedStudents = localStudents.filter(s => s.status === 'graduated').length
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Students</h1>
-        <p className="text-gray-600">Manage student information and records</p>
-      </div>
+      <h1 className="text-2xl font-bold text-gray-900 mb-4">Students</h1>
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
@@ -66,27 +102,15 @@ export default function Students(): ReactElement {
         </div>
       </div>
 
-      {/* Grade Distribution */}
-      {Object.keys(gradeGroups).length > 1 && (
-        <div className="bg-white p-6 rounded-lg shadow mb-8">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Students by Grade</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            {Object.entries(gradeGroups).map(([grade, count]) => (
-              <div key={grade} className="text-center">
-                <div className="text-2xl font-bold text-indigo-600">{count}</div>
-                <div className="text-sm text-gray-500">{grade}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Students Table */}
       <div className="bg-white shadow rounded-lg">
         <div className="px-4 py-5 sm:p-6">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-lg font-medium text-gray-900">All Students</h3>
-            <button className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 transition-colors">
+            <button
+              className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 transition-colors"
+              onClick={openModal}
+            >
               Add Student
             </button>
           </div>
@@ -96,80 +120,41 @@ export default function Students(): ReactElement {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Phone</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Grade</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Enrollment Date</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created At</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date of Birth</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created At</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {studentsArray.length === 0 ? (
+                {localStudents.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-6 py-4 text-center text-sm text-gray-500">
+                    <td colSpan={5} className="px-6 py-4 text-center text-sm text-gray-500">
                       No students found
                     </td>
                   </tr>
                 ) : (
-                  studentsArray.map((student: Student) => (
+                  localStudents.map(student => (
                     <tr key={student.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <div className="h-10 w-10 flex items-center justify-center rounded-full bg-indigo-100">
-                            <span className="text-sm font-medium text-indigo-700">
-                              {student.name.split(' ').map(n => n[0]).join('').toUpperCase()}
-                            </span>
-                          </div>
-                          <div className="ml-4">
-                            <div className="text-sm font-medium text-gray-900">{student.name}</div>
-                            <div className="text-sm text-gray-500">ID: {student.id}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-900">{student.email}</td>
-                      <td className="px-6 py-4 text-sm text-gray-500">{student.phone || 'Not provided'}</td>
-                      <td className="px-6 py-4 text-sm text-gray-500">{student.grade || 'Not assigned'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-900">{student.name}</td>
+                      <td className="px-6 py-4 text-sm text-gray-500">{student.grade}</td>
                       <td className="px-6 py-4 text-sm text-gray-500">
-                        {student.enrollmentDate ? formatDate(student.enrollmentDate) : 'Not provided'}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-500">
-                        {student.createdAt ? formatDate(student.createdAt) : '—'}
+                        {student.date_of_birth ? formatDate(student.date_of_birth) : '—'}
                       </td>
                       <td className="px-6 py-4">
                         <span
                           className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                            student.status === 'active' || !student.status
+                            student.status === 'active'
                               ? 'bg-green-100 text-green-800'
                               : student.status === 'inactive'
                               ? 'bg-red-100 text-red-800'
                               : 'bg-purple-100 text-purple-800'
                           }`}
                         >
-                          {student.status || 'Active'}
+                          {student.status || 'active'}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-sm font-medium space-x-2">
-                        <button
-                          className="text-indigo-600 hover:text-indigo-900"
-                          onClick={() => console.log('View student:', student.id)}
-                        >
-                          View
-                        </button>
-                        <button
-                          className="text-amber-600 hover:text-amber-900"
-                          onClick={() => console.log('Edit student:', student.id)}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          className="text-red-600 hover:text-red-900"
-                          onClick={() => console.log('Delete student:', student.id)}
-                        >
-                          Delete
-                        </button>
-                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-500">{formatDate(student.created_at)}</td>
                     </tr>
                   ))
                 )}
@@ -178,6 +163,49 @@ export default function Students(): ReactElement {
           </div>
         </div>
       </div>
+
+      {/* Add Student Modal */}
+      {isModalOpen && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+          aria-modal="true"
+          role="dialog"
+        >
+          <div className="bg-white p-6 rounded-lg shadow-lg w-96 relative">
+            <h2 className="text-lg font-bold mb-4">Add Student</h2>
+            <button
+              className="absolute top-2 right-2 text-gray-500 hover:text-gray-700"
+              onClick={closeModal}
+              aria-label="Close modal"
+            >
+              ✕
+            </button>
+            <form onSubmit={handleAddStudent} className="space-y-3">
+              <input
+                ref={firstInputRef}
+                className="w-full p-2 border rounded"
+                placeholder="Student Name"
+                value={newStudentName}
+                onChange={e => setNewStudentName(e.target.value)}
+                required
+              />
+              <input
+                className="w-full p-2 border rounded"
+                placeholder="Grade"
+                value={newStudentGrade}
+                onChange={e => setNewStudentGrade(e.target.value)}
+                required
+              />
+              <button
+                type="submit"
+                className="w-full bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700"
+              >
+                Save
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
