@@ -37,9 +37,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const response = await processATUSSDResponse(session, text)
 
+    // Ensure response starts with either CON or END
+    let formattedResponse = response.text
+    if (!formattedResponse.startsWith('CON ') && !formattedResponse.startsWith('END ')) {
+      // If status is completed, prefix with END, otherwise prefix with CON
+      formattedResponse = response.status === 'completed' 
+        ? `END ${formattedResponse}`
+        : `CON ${formattedResponse}`
+    }
+
     // Africa's Talking expects plain text responses
     res.setHeader('Content-Type', 'text/plain')
-    return res.status(200).send(response.text)
+    return res.status(200).send(formattedResponse)
 
   } catch (error) {
     console.error('USSD Processing Error:', error)
