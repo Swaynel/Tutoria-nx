@@ -12,6 +12,8 @@ interface FormData {
   confirmPassword: string
   fullName: string
   schoolName: string
+  role?: 'school_admin' | 'teacher' | 'parent' | 'super_admin'
+  phone?: string
 }
 
 export default function Signup() {
@@ -21,6 +23,8 @@ export default function Signup() {
     confirmPassword: '',
     fullName: '',
     schoolName: ''
+    , role: 'school_admin'
+    , phone: ''
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -91,12 +95,17 @@ export default function Signup() {
       setError('School name must be at least 2 characters')
       return false
     }
+
+    if (!formData.phone || !/^\+?\d{9,15}$/.test(formData.phone)) {
+      setError('Please enter a valid phone number including country code')
+      return false
+    }
     
     return true
   }
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target as HTMLInputElement | HTMLSelectElement
     setFormData(prev => ({ ...prev, [name]: value }))
     if (error) setError('')
   }
@@ -115,15 +124,22 @@ export default function Signup() {
     try {
       console.log('🚀 Starting signup process...')
       
-      // SIMPLIFIED: Let the database trigger handle school/profile creation
+      // Prevent creating super_admin from public signup
+      if ((formData.role as string) === 'super_admin') {
+        throw new Error('Super admin accounts must be provisioned by an existing super admin')
+      }
+
+      // Attach role and phone to metadata so a DB trigger can create proper profiles
       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
         email: formData.email,
         password: formData.password,
         options: {
           emailRedirectTo: `${window.location.origin}/auth/callback`,
-          data: { 
-            full_name: formData.fullName, 
-            school_name: formData.schoolName 
+          data: {
+            full_name: formData.fullName,
+            school_name: formData.schoolName,
+            role: formData.role,
+            phone: formData.phone
           }
         }
       })
@@ -266,6 +282,37 @@ export default function Signup() {
                 required
                 placeholder="Enter your school name"
                 value={formData.schoolName}
+                onChange={handleInputChange}
+                disabled={loading}
+                className="appearance-none block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm disabled:bg-gray-100"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="role" className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+              <select
+                id="role"
+                name="role"
+                value={formData.role}
+                onChange={handleInputChange}
+                disabled={loading}
+                className="block w-full px-3 py-2 border border-gray-300 rounded-md bg-white"
+              >
+                <option value="school_admin">School Admin</option>
+                <option value="teacher">Teacher</option>
+                <option value="parent">Parent</option>
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1">Phone (include country code)</label>
+              <input
+                id="phone"
+                name="phone"
+                type="tel"
+                required
+                placeholder="e.g. +2547..."
+                value={formData.phone}
                 onChange={handleInputChange}
                 disabled={loading}
                 className="appearance-none block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm disabled:bg-gray-100"
