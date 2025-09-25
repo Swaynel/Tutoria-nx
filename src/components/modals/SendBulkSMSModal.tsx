@@ -24,6 +24,7 @@ export default function SendBulkSMSModal({ onClose }: SendBulkSMSModalProps) {
   const handleSend = async () => {
     if (!message.trim() || !user?.school_id) return
 
+
     // Only admins can send bulk messages from UI
     const role = (user && (user as { role?: string }).role) || ''
     if (!(role === 'superadmin' || role === 'school_admin')) {
@@ -39,15 +40,15 @@ export default function SendBulkSMSModal({ onClose }: SendBulkSMSModalProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          schoolId: user.school_id,
+          school_id: user.school_id,
           message,
           recipientType
         })
       })
 
-  const result: BulkSMSResult = await response.json()
+      const result: BulkSMSResult = await response.json()
 
-  if (!response.ok) throw new Error(result.error ?? 'Unknown error')
+      if (!response.ok) throw new Error(result.error ?? 'Unknown error')
 
       // Show summary
       setResultSummary({
@@ -79,10 +80,11 @@ export default function SendBulkSMSModal({ onClose }: SendBulkSMSModalProps) {
       <h2 className="text-lg font-medium text-gray-900">Send Bulk SMS</h2>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label htmlFor="recipientType" className="block text-sm font-medium text-gray-700 mb-2">
           Recipients
         </label>
         <select
+          id="recipientType"
           value={recipientType}
           onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
             setRecipientType(e.target.value as RecipientType)

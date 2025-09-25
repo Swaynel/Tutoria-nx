@@ -1,0 +1,733 @@
+-- ========================================================
+-- Tuitora - Complete Database Schema (Production Ready) - FIXED
+-- ========================================================
+
+-- Enable required extensions
+create extension if not exists "uuid-ossp";
+create extension if not exists "pgcrypto";
+
+-- --------------------------------------------------------
+-- Drop tables in reverse dependency order
+-- --------------------------------------------------------
+drop table if exists public.teacher_invites cascade;
+drop table if exists public.audit_logs cascade;
+drop table if exists public.notifications cascade;
+drop table if exists public.messages cascade;
+drop table if exists public.ussd_sessions cascade;
+drop table if exists public.grades cascade;
+drop table if exists public.teachers cascade;
+drop table if exists public.payments cascade;
+drop table if exists public.attendance cascade;
+drop table if exists public.parent_student_relationships cascade;
+drop table if exists public.student_classes cascade;
+drop table if exists public.classes cascade;
+drop table if exists public.students cascade;
+drop table if exists public.profiles cascade;
+drop table if exists public.schools cascade;
+
+-- ========================================================
+-- Tables
+-- ========================================================
+
+-- Schools table
+create table public.schools (
+    id uuid primary key default uuid_generate_v4(),
+    name text not null,
+    slug text unique not null,
+    logo_url text,
+    address text,
+    phone text,
+    email text check (email ~* '^[A-Za-z0-9._+%-]+@[A-Za-z0-9.-]+[.][A-Za-z]+$'),
+    is_active boolean default true,
+    created_at timestamptz default now(),
+    updated_at timestamptz default now()
+);
+
+-- Profiles table (extends auth.users)
+create table public.profiles (
+    id uuid primary key references auth.users(id) on delete cascade,
+    email text not null,
+    full_name text not null check (length(trim(full_name)) >= 2),
+    role text default 'teacher' check (role in ('superadmin','school_admin','teacher','parent','student')),
+    school_id uuid references public.schools(id) on delete set null,
+    phone text,
+    avatar_url text,
+    is_active boolean default true,
+    last_login timestamptz,
+    created_at timestamptz default now(),
+    updated_at timestamptz default now()
+);
+
+-- Teachers table
+create table public.teachers (
+    id uuid primary key default uuid_generate_v4(),
+    user_id uuid references public.profiles(id) on delete cascade,
+    full_name text not null check (length(trim(full_name)) >= 2),
+    email text not null check (email ~* '^[A-Za-z0-9._+%-]+@[A-Za-z0-9.-]+[.][A-Za-z]+$'),
+    phone text,
+    school_id uuid not null references public.schools(id) on delete cascade,
+    subject_specialization text,
+    employment_status text default 'active' check (employment_status in ('active','inactive','suspended')),
+    hire_date date default current_date,
+    salary numeric(10,2),
+    qualifications text,
+    created_at timestamptz default now(),
+    updated_at timestamptz default now()
+);
+
+-- Students table
+create table public.students (
+    id uuid primary key default uuid_generate_v4(),
+    school_id uuid not null references public.schools(id) on delete cascade,
+    name text not null check (length(trim(name)) >= 2),
+    student_id text unique,
+    grade text,
+    date_of_birth date,
+    gender text check (gender in ('male','female','other')),
+    admission_date date default current_date,
+    guardian_name text,
+    guardian_phone text,
+    guardian_email text,
+    medical_conditions text,
+    is_active boolean default true,
+    created_at timestamptz default now(),
+    updated_at timestamptz default now()
+);
+
+-- Classes table
+create table public.classes (
+    id uuid primary key default uuid_generate_v4(),
+    school_id uuid references public.schools(id) on delete cascade,
+    name text not null,
+    grade_level text,
+    teacher_id uuid references public.teachers(id) on delete set null,
+    capacity integer default 30 check (capacity > 0),
+    room_number text,
+    academic_year text default extract(year from current_date)::text,
+    is_active boolean default true,
+    created_at timestamptz default now(),
+    updated_at timestamptz default now()
+);
+
+-- Student-class assignments
+create table public.student_classes (
+    id uuid primary key default uuid_generate_v4(),
+    student_id uuid references public.students(id) on delete cascade,
+    class_id uuid references public.classes(id) on delete cascade,
+    enrollment_date date default current_date,
+    is_active boolean default true,
+    created_at timestamptz default now(),
+    unique(student_id, class_id)
+);
+
+-- Grades table
+create table public.grades (
+    id uuid primary key default uuid_generate_v4(),
+    student_id uuid not null references public.students(id) on delete cascade,
+    subject text not null,
+    score numeric(5,2) not null check (score >= 0),
+    max_score numeric(5,2) default 100 check (max_score > 0),
+    grade_letter text,
+    term text default 'Term 1',
+    year integer default extract(year from current_date),
+    exam_type text default 'assignment' check (exam_type in ('quiz','assignment','midterm','final','project')),
+    teacher_id uuid references public.teachers(id) on delete set null,
+    remarks text,
+    date_recorded date default current_date,
+    created_at timestamptz default now(),
+    updated_at timestamptz default now()
+);
+
+-- Parent-student relationships
+create table public.parent_student_relationships (
+    id uuid primary key default uuid_generate_v4(),
+    parent_user_id uuid references public.profiles(id) on delete cascade,
+    student_id uuid references public.students(id) on delete cascade,
+    relationship_type text default 'parent' check (relationship_type in ('parent','guardian','mother','father','other')),
+    is_primary boolean default false,
+    emergency_contact boolean default false,
+    can_pick_up boolean default true,
+    created_at timestamptz default now(),
+    updated_at timestamptz default now(),
+    unique(parent_user_id, student_id)
+);
+
+-- Attendance table
+create table public.attendance (
+    id uuid primary key default uuid_generate_v4(),
+    school_id uuid references public.schools(id) on delete cascade,
+    student_id uuid references public.students(id) on delete cascade,
+    date date not null,
+    status text default 'present' check (status in ('present','absent','late','excused')),
+    marked_by uuid references public.teachers(id) on delete set null,
+    time_in time,
+    time_out time,
+    notes text,
+    created_at timestamptz default now(),
+    updated_at timestamptz default now(),
+    unique(student_id, date)
+);
+
+-- Payments table
+create table public.payments (
+    id uuid primary key default uuid_generate_v4(),
+    school_id uuid references public.schools(id) on delete cascade,
+    student_id uuid references public.students(id) on delete cascade,
+    amount numeric(10,2) not null check (amount > 0),
+    description text not null,
+    payment_method text default 'cash' check (payment_method in ('cash','card','bank_transfer','mobile_money')),
+    reference_id text,
+    transaction_id text,
+    status text default 'pending' check (status in ('pending','completed','failed','refunded')),
+    paid_at timestamptz,
+    due_date date,
+    academic_term text,
+    fee_type text default 'tuition' check (fee_type in ('tuition','transport','meals','uniform','books','activities','other')),
+    created_at timestamptz default now(),
+    updated_at timestamptz default now()
+);
+
+-- Messages table
+create table public.messages (
+    id uuid primary key default uuid_generate_v4(),
+    school_id uuid references public.schools(id) on delete cascade,
+    sender_id uuid references public.profiles(id) on delete cascade,
+    recipient_id uuid references public.profiles(id) on delete cascade,
+    subject text,
+    content text not null,
+    message_type text default 'platform' check (message_type in ('sms','whatsapp','email','platform')),
+    status text default 'draft' check (status in ('draft','sent','delivered','read','failed')),
+    priority text default 'normal' check (priority in ('low','normal','high')),
+    sent_at timestamptz default now(),
+    read_at timestamptz,
+    created_at timestamptz default now(),
+    updated_at timestamptz default now()
+);
+
+-- Notifications table
+create table public.notifications (
+    id uuid primary key default uuid_generate_v4(),
+    user_id uuid references public.profiles(id) on delete cascade,
+    title text not null,
+    message text not null,
+    type text default 'info' check (type in ('info','warning','success','error')),
+    related_type text,
+    related_id uuid,
+    action_url text,
+    is_read boolean default false,
+    expires_at timestamptz,
+    created_at timestamptz default now(),
+    updated_at timestamptz default now()
+);
+
+-- USSD Sessions table
+create table public.ussd_sessions (
+    id uuid primary key default uuid_generate_v4(),
+    session_id text unique not null,
+    phone text not null,
+    service_code text not null,
+    input_text text,
+    response_text text,
+    status text default 'active' check (status in ('active','completed','expired','error')),
+    step integer default 1,
+    user_data jsonb default '{}',
+    expires_at timestamptz default (now() + interval '5 minutes'),
+    created_at timestamptz default now(),
+    updated_at timestamptz default now()
+);
+
+-- Audit logs table
+create table public.audit_logs (
+    id uuid primary key default uuid_generate_v4(),
+    action text not null,
+    table_name text not null,
+    record_id uuid,
+    user_id uuid references public.profiles(id) on delete set null,
+    old_data jsonb,
+    new_data jsonb,
+    ip_address text,
+    user_agent text,
+    created_at timestamptz default now()
+);
+
+-- Teacher invites table
+create table public.teacher_invites (
+    id uuid primary key default gen_random_uuid(),
+    school_id uuid references public.schools(id) on delete cascade,
+    email text not null,
+    role text default 'teacher' check (role in ('teacher','school_admin')),
+    token text unique not null default gen_random_uuid()::text,
+    expires_at timestamptz default (now() + interval '7 days'),
+    used boolean default false,
+    created_by uuid references public.profiles(id) on delete set null,
+    created_at timestamptz default now()
+);
+
+-- ========================================================
+-- Row Level Security
+-- ========================================================
+alter table public.schools enable row level security;
+alter table public.profiles enable row level security;
+alter table public.teachers enable row level security;
+alter table public.students enable row level security;
+alter table public.classes enable row level security;
+alter table public.student_classes enable row level security;
+alter table public.grades enable row level security;
+alter table public.parent_student_relationships enable row level security;
+alter table public.attendance enable row level security;
+alter table public.payments enable row level security;
+alter table public.messages enable row level security;
+alter table public.notifications enable row level security;
+alter table public.ussd_sessions enable row level security;
+alter table public.audit_logs enable row level security;
+alter table public.teacher_invites enable row level security;
+
+-- ========================================================
+-- RLS Policies (FIXED with proper UUID casting)
+-- ========================================================
+
+-- Schools policies
+create policy "Users can view their school" on public.schools for select
+using (
+    (auth.uid() is not null) and (
+        id = (select school_id from public.profiles where id = auth.uid() and school_id is not null)
+        or exists (select 1 from public.profiles where id = auth.uid() and role = 'superadmin')
+    )
+);
+
+create policy "School admins can update their school" on public.schools for update
+using (
+    (auth.uid() is not null) and (
+        id = (select school_id from public.profiles where id = auth.uid() and role in ('school_admin', 'superadmin'))
+    )
+);
+
+-- Profiles policies
+create policy "Users can view profiles in their school" on public.profiles for select
+using (
+    (auth.uid() is not null) and (
+        school_id = (select school_id from public.profiles where id = auth.uid())
+        or id = auth.uid()
+        or exists (select 1 from public.profiles where id = auth.uid() and role = 'superadmin')
+    )
+);
+
+create policy "Users can update their own profile" on public.profiles for update
+using (auth.uid() = id);
+
+create policy "School admins can insert users" on public.profiles for insert
+with check (
+    (auth.uid() is not null) and (
+        school_id = (select school_id from public.profiles where id = auth.uid())
+        and exists (select 1 from public.profiles where id = auth.uid() and role in ('school_admin', 'superadmin'))
+    )
+);
+
+-- Teachers policies
+create policy "Users can view teachers in their school" on public.teachers for select
+using (
+    (auth.uid() is not null) and (
+        school_id = (select school_id from public.profiles where id = auth.uid())
+        or exists (select 1 from public.profiles where id = auth.uid() and role = 'superadmin')
+    )
+);
+
+create policy "School admins can manage teachers" on public.teachers for all
+using (
+    (auth.uid() is not null) and (
+        school_id = (select school_id from public.profiles where id = auth.uid())
+        and exists (select 1 from public.profiles where id = auth.uid() and role in ('school_admin', 'superadmin'))
+    )
+);
+
+-- Students policies
+create policy "Users can view students in their school" on public.students for select
+using (
+    (auth.uid() is not null) and (
+        school_id = (select school_id from public.profiles where id = auth.uid())
+        or exists (select 1 from public.profiles where id = auth.uid() and role = 'superadmin')
+    )
+);
+
+create policy "School staff can manage students" on public.students for all
+using (
+    (auth.uid() is not null) and (
+        school_id = (select school_id from public.profiles where id = auth.uid())
+        and exists (select 1 from public.profiles where id = auth.uid() and role in ('school_admin', 'teacher', 'superadmin'))
+    )
+);
+
+-- Classes policies
+create policy "Users can view classes in their school" on public.classes for select
+using (
+    (auth.uid() is not null) and (
+        school_id = (select school_id from public.profiles where id = auth.uid())
+        or exists (select 1 from public.profiles where id = auth.uid() and role = 'superadmin')
+    )
+);
+
+create policy "School staff can manage classes" on public.classes for all
+using (
+    (auth.uid() is not null) and (
+        school_id = (select school_id from public.profiles where id = auth.uid())
+        and exists (select 1 from public.profiles where id = auth.uid() and role in ('school_admin', 'teacher', 'superadmin'))
+    )
+);
+
+-- Student classes policies
+create policy "Users can view student classes in their school" on public.student_classes for select
+using (
+    (auth.uid() is not null) and (
+        exists (
+            select 1 from public.students s 
+            inner join public.profiles p on p.id = auth.uid()
+            where s.id = student_classes.student_id 
+            and s.school_id = p.school_id
+        )
+        or exists (select 1 from public.profiles where id = auth.uid() and role = 'superadmin')
+    )
+);
+
+create policy "School staff can manage student classes" on public.student_classes for all
+using (
+    (auth.uid() is not null) and (
+        exists (
+            select 1 from public.students s 
+            inner join public.profiles p on p.id = auth.uid()
+            where s.id = student_classes.student_id 
+            and s.school_id = p.school_id
+            and p.role in ('school_admin', 'teacher', 'superadmin')
+        )
+    )
+);
+
+-- Grades policies
+create policy "Users can view grades in their school" on public.grades for select
+using (
+    (auth.uid() is not null) and (
+        exists (
+            select 1 from public.students s 
+            inner join public.profiles p on p.id = auth.uid()
+            where s.id = grades.student_id 
+            and s.school_id = p.school_id
+        )
+        or exists (select 1 from public.profiles where id = auth.uid() and role = 'superadmin')
+    )
+);
+
+create policy "Teachers can manage grades" on public.grades for all
+using (
+    (auth.uid() is not null) and (
+        exists (
+            select 1 from public.students s 
+            inner join public.profiles p on p.id = auth.uid()
+            where s.id = grades.student_id 
+            and s.school_id = p.school_id
+            and p.role in ('teacher', 'school_admin', 'superadmin')
+        )
+    )
+);
+
+-- Parent-student relationships policies
+create policy "Users can view their relationships" on public.parent_student_relationships for select
+using (
+    (auth.uid() is not null) and (
+        parent_user_id = auth.uid()
+        or exists (
+            select 1 from public.students s 
+            inner join public.profiles p on p.id = auth.uid()
+            where s.id = parent_student_relationships.student_id 
+            and s.school_id = p.school_id
+        )
+        or exists (select 1 from public.profiles where id = auth.uid() and role = 'superadmin')
+    )
+);
+
+create policy "School admins can manage relationships" on public.parent_student_relationships for all
+using (
+    (auth.uid() is not null) and (
+        exists (
+            select 1 from public.students s 
+            inner join public.profiles p on p.id = auth.uid()
+            where s.id = parent_student_relationships.student_id 
+            and s.school_id = p.school_id
+            and p.role in ('school_admin', 'superadmin')
+        )
+    )
+);
+
+-- Attendance policies
+create policy "Users can view attendance in their school" on public.attendance for select
+using (
+    (auth.uid() is not null) and (
+        school_id = (select school_id from public.profiles where id = auth.uid())
+        or exists (select 1 from public.profiles where id = auth.uid() and role = 'superadmin')
+    )
+);
+
+create policy "Teachers can manage attendance" on public.attendance for all
+using (
+    (auth.uid() is not null) and (
+        school_id = (select school_id from public.profiles where id = auth.uid())
+        and exists (select 1 from public.profiles where id = auth.uid() and role in ('school_admin', 'teacher', 'superadmin'))
+    )
+);
+
+-- Payments policies
+create policy "Users can view payments in their school" on public.payments for select
+using (
+    (auth.uid() is not null) and (
+        school_id = (select school_id from public.profiles where id = auth.uid())
+        or exists (select 1 from public.profiles where id = auth.uid() and role = 'superadmin')
+    )
+);
+
+create policy "School staff can manage payments" on public.payments for all
+using (
+    (auth.uid() is not null) and (
+        school_id = (select school_id from public.profiles where id = auth.uid())
+        and exists (select 1 from public.profiles where id = auth.uid() and role in ('school_admin', 'teacher', 'superadmin'))
+    )
+);
+
+-- Messages policies
+create policy "Users can view their messages" on public.messages for select
+using (
+    (auth.uid() is not null) and (
+        sender_id = auth.uid() 
+        or recipient_id = auth.uid()
+        or exists (select 1 from public.profiles where id = auth.uid() and role = 'superadmin')
+    )
+);
+
+create policy "Users can send messages" on public.messages for insert
+with check (
+    (auth.uid() is not null) and sender_id = auth.uid()
+);
+
+create policy "Users can update their message status" on public.messages for update
+using (
+    (auth.uid() is not null) and recipient_id = auth.uid()
+);
+
+-- Notifications policies
+create policy "Users can view their notifications" on public.notifications for select
+using (
+    (auth.uid() is not null) and user_id = auth.uid()
+);
+
+create policy "Users can update their notifications" on public.notifications for update
+using (
+    (auth.uid() is not null) and user_id = auth.uid()
+);
+
+create policy "System can insert notifications" on public.notifications for insert
+with check (true);
+
+-- USSD sessions policy
+create policy "Users can view their own USSD sessions" on public.ussd_sessions for select
+using (
+    (auth.uid() is not null) and (
+        exists (
+            select 1
+            from public.profiles p
+            where p.id = auth.uid()
+            and p.phone = ussd_sessions.phone
+        )
+        or exists (
+            select 1
+            from public.profiles p
+            where p.id = auth.uid()
+            and p.role = 'superadmin'
+        )
+    )
+);
+
+create policy "System can manage USSD sessions" on public.ussd_sessions for all using (true);
+
+-- Audit logs policies
+create policy "Only superadmins can view audit logs" on public.audit_logs for all
+using (
+    (auth.uid() is not null) and 
+    exists (select 1 from public.profiles where id = auth.uid() and role = 'superadmin')
+);
+
+-- Teacher invites policies
+create policy "School admins can manage invites" on public.teacher_invites for all
+using (
+    (auth.uid() is not null) and (
+        school_id = (select school_id from public.profiles where id = auth.uid())
+        and exists (select 1 from public.profiles where id = auth.uid() and role in ('school_admin', 'superadmin'))
+    )
+);
+
+-- Public access for invite verification
+create policy "Anyone can view valid invites for signup" on public.teacher_invites for select
+using (
+    not used and expires_at > now()
+);
+
+-- ========================================================
+-- Indexes for Performance
+-- ========================================================
+
+-- Profiles indexes
+create index idx_profiles_school_id on public.profiles(school_id);
+create index idx_profiles_role on public.profiles(role);
+create index idx_profiles_email on public.profiles(email);
+
+-- Teachers indexes
+create index idx_teachers_school_id on public.teachers(school_id);
+create index idx_teachers_user_id on public.teachers(user_id);
+create index idx_teachers_email on public.teachers(email);
+
+-- Students indexes
+create index idx_students_school_id on public.students(school_id);
+create index idx_students_active on public.students(is_active) where is_active = true;
+create index idx_students_student_id on public.students(student_id);
+
+-- Classes indexes
+create index idx_classes_school_id on public.classes(school_id);
+create index idx_classes_teacher_id on public.classes(teacher_id);
+
+-- Student classes indexes
+create index idx_student_classes_student_id on public.student_classes(student_id);
+create index idx_student_classes_class_id on public.student_classes(class_id);
+
+-- Grades indexes
+create index idx_grades_student_id on public.grades(student_id);
+create index idx_grades_subject on public.grades(subject);
+create index idx_grades_term_year on public.grades(term, year);
+
+-- Attendance indexes
+create index idx_attendance_school_id_date on public.attendance(school_id, date);
+create index idx_attendance_student_id_date on public.attendance(student_id, date);
+
+-- Payments indexes
+create index idx_payments_school_id on public.payments(school_id);
+create index idx_payments_student_id on public.payments(student_id);
+create index idx_payments_status on public.payments(status);
+
+-- Messages indexes
+create index idx_messages_recipient_id on public.messages(recipient_id);
+create index idx_messages_sender_id on public.messages(sender_id);
+create index idx_messages_sent_at on public.messages(sent_at);
+
+-- Notifications indexes
+create index idx_notifications_user_id on public.notifications(user_id);
+create index idx_notifications_is_read on public.notifications(is_read) where is_read = false;
+
+-- USSD sessions indexes
+create index idx_ussd_sessions_session_id on public.ussd_sessions(session_id);
+create index idx_ussd_sessions_phone on public.ussd_sessions(phone);
+
+-- Teacher invites indexes
+create index idx_teacher_invites_token on public.teacher_invites(token);
+create index idx_teacher_invites_email on public.teacher_invites(email);
+
+-- ========================================================
+-- Functions
+-- ========================================================
+
+-- Function to auto-update updated_at column
+create or replace function public.update_updated_at_column() returns trigger as $$
+begin
+    new.updated_at = now();
+    return new;
+end;
+$$ language plpgsql;
+
+-- Function to create profile after user signup
+create or replace function public.handle_new_user() returns trigger as $$
+begin
+    insert into public.profiles (id, email, full_name, role)
+    values (
+        new.id, 
+        new.email, 
+        coalesce(new.raw_user_meta_data->>'full_name', 'User'), 
+        coalesce(new.raw_user_meta_data->>'role', 'teacher')
+    );
+    return new;
+end;
+$$ language plpgsql security definer;
+
+-- Function to calculate grade letter
+create or replace function public.calculate_grade_letter(score numeric, max_score numeric default 100) returns text as $$
+declare
+    percentage numeric;
+begin
+    percentage := (score / max_score) * 100;
+    case 
+        when percentage >= 90 then return 'A';
+        when percentage >= 80 then return 'B';
+        when percentage >= 70 then return 'C';
+        when percentage >= 60 then return 'D';
+        else return 'F';
+    end case;
+end;
+$$ language plpgsql;
+
+-- Trigger to auto-calculate grade letter
+create or replace function public.set_grade_letter() returns trigger as $$
+begin
+    new.grade_letter := public.calculate_grade_letter(new.score, new.max_score);
+    return new;
+end;
+$$ language plpgsql;
+
+-- ========================================================
+-- Dynamic Triggers
+-- ========================================================
+
+-- Dynamic trigger creation for updated_at
+do $$
+declare
+    tbl text;
+begin
+    for tbl in
+        select table_name
+        from information_schema.tables
+        where table_schema = 'public'
+          and table_name not in ('audit_logs') -- Skip tables without updated_at
+          and exists (
+            select 1
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = tbl
+              and column_name = 'updated_at'
+          )
+    loop
+        execute format('
+            drop trigger if exists update_%s_updated_at on public.%s;
+            create trigger update_%s_updated_at
+                before update on public.%s
+                for each row execute function public.update_updated_at_column();
+        ', tbl, tbl, tbl, tbl);
+    end loop;
+end $$;
+
+-- Specific triggers that need special handling
+drop trigger if exists on_auth_user_created on auth.users;
+
+create trigger on_auth_user_created
+    after insert on auth.users
+    for each row
+    execute function public.handle_new_user();
+
+create trigger set_grade_letter_trigger 
+    before insert or update on public.grades 
+    for each row execute function public.set_grade_letter();
+
+-- ========================================================
+-- Permissions
+-- ========================================================
+
+grant usage on schema public to anon, authenticated;
+grant all on all tables in schema public to authenticated;
+grant all on all sequences in schema public to authenticated;
+grant all on all tables in schema public to service_role;
+grant all on all sequences in schema public to service_role;
+
+-- ========================================================
+-- End of schema
+-- ========================================================

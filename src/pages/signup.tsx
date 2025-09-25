@@ -355,8 +355,9 @@ export default function Signup() {
                   <div className="flex items-center justify-between">
                     <div className="w-full bg-gray-200 rounded-full h-2">
                       <div
-                        className={`h-2 rounded-full transition-all duration-300 ${getPasswordStrengthColor(passwordStrength)}`}
-                        style={{ width: `${(passwordStrength / 5) * 100}%` }}
+                        className={`h-2 rounded-full transition-all duration-300 absolute top-0 left-0 ${getPasswordStrengthColor(passwordStrength)}`}
+                        style={{ maxWidth: '100%', width: `${(passwordStrength / 5) * 100}%` }}
+                        aria-label="Password strength bar"
                       />
                     </div>
                     <span className="ml-2 text-xs text-gray-600">{getPasswordStrengthText(passwordStrength)}</span>

@@ -140,6 +140,7 @@ export default function Home() {
               {['features', 'pricing', 'contact'].map((id) => (
                 <button
                   key={id}
+                  type="button"
                   onClick={() => handleNavClick(id)}
                   className={`capitalize font-medium hover:text-emerald-400 transition-all duration-300 relative ${
                     activeSection === id ? 'text-emerald-400' : 'text-gray-200'
@@ -210,6 +211,7 @@ export default function Home() {
                 {['features', 'pricing', 'contact'].map((id) => (
                   <button
                     key={id}
+                    type="button"
                     onClick={() => handleNavClick(id)}
                     className={`text-left capitalize font-medium hover:text-emerald-400 transition-colors duration-300 ${
                       activeSection === id ? 'text-emerald-400' : 'text-gray-200'
@@ -336,7 +338,7 @@ export default function Home() {
                   onChange={(e) => setSearchQuery(e.target.value)}
                   aria-label="Search for school"
                 />
-                <button className="bg-emerald-500 hover:bg-emerald-600 px-8 py-4 transition-all duration-300 font-medium text-white">
+                <button type="button" className="bg-emerald-500 hover:bg-emerald-600 px-8 py-4 transition-all duration-300 font-medium text-white">
                   Search
                 </button>
               </div>

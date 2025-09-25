@@ -1,83 +1,80 @@
-// src/hooks/useAuth.ts
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { AppUser } from '../types'
-import { AuthChangeEvent, Session } from '@supabase/supabase-js'
 
 interface AuthResponse {
   success: boolean
   message?: string
-  user?: AppUser
+  user?: AppUser | null
 }
 
 export function useAuth() {
   const [user, setUser] = useState<AppUser | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const fetchUserProfile = useCallback(async (userId: string): Promise<void> => {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single()
-
-      if (error) throw error
-      if (data) setUser(data as AppUser)
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        console.error('Error fetching user profile:', error.message)
-      } else {
-        console.error('Unknown error fetching user profile:', error)
+  // 🔹 Load user on mount
+  useEffect(() => {
+    const fetchUser = async () => {
+      const { data, error } = await supabase.auth.getSession()
+      if (error) {
+        console.error('Error getting session:', error.message)
+      } else if (data.session?.user) {
+        const sessionUser = data.session.user
+        setUser({
+          id: sessionUser.id,
+          email: sessionUser.email ?? '',
+          full_name: sessionUser.user_metadata?.full_name ?? '',
+          role: sessionUser.user_metadata?.role ?? 'student',
+          school_id: sessionUser.user_metadata?.school_id ?? undefined,
+          created_at: sessionUser.created_at ?? '',
+        })
       }
-    } finally {
       setLoading(false)
     }
-  }, [])
 
-  const refreshUser = useCallback(async (): Promise<void> => {
-    const { data: { session } } = await supabase.auth.getSession()
-    if (session?.user) {
-      await fetchUserProfile(session.user.id)
-    } else {
-      setUser(null)
-    }
-  }, [fetchUserProfile])
+    fetchUser()
 
-  useEffect(() => {
-    const init = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session?.user) {
-        await fetchUserProfile(session.user.id)
-      } else {
-        setLoading(false)
-      }
-    }
-    init()
-
+    // 🔹 Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event: AuthChangeEvent, session: Session | null) => {
+      async (_event, session) => {
         if (session?.user) {
-          fetchUserProfile(session.user.id)
+          const sessionUser = session.user
+          setUser({
+            id: sessionUser.id,
+            email: sessionUser.email ?? '',
+            full_name: sessionUser.user_metadata?.full_name ?? '',
+            role: sessionUser.user_metadata?.role ?? 'student',
+            school_id: sessionUser.user_metadata?.school_id ?? undefined,
+            created_at: sessionUser.created_at ?? '',
+          })
         } else {
           setUser(null)
-          setLoading(false)
         }
       }
     )
 
-    return () => {
-      subscription.unsubscribe()
-    }
-  }, [fetchUserProfile])
+    return () => subscription.unsubscribe()
+  }, [])
 
+  // 🔹 Sign up
   const signUp = async (
     email: string,
     password: string,
-    fullName: string,
+    full_name: string,
     schoolName: string
   ): Promise<AuthResponse> => {
     try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { full_name },
+        },
+      })
+
+      if (error) throw error
+      if (!data.user) throw new Error('User creation failed')
+
       const { data: schoolData, error: schoolError } = await supabase
         .from('schools')
         .insert([{ name: schoolName, slug: schoolName.toLowerCase().replace(/\s+/g, '-') }])
@@ -86,66 +83,98 @@ export function useAuth() {
 
       if (schoolError) throw schoolError
 
-      const { data: { user }, error: signUpError } = await supabase.auth.signUp({
-        email,
-        password,
-      })
-
-      if (signUpError) throw signUpError
-      if (!user) throw new Error('User not returned after sign up')
-
       const { error: profileError } = await supabase
         .from('profiles')
-        .insert([
-          {
-            id: user.id,
-            email,
-            full_name: fullName,
-            role: 'school_admin',
-            school_id: schoolData.id,
-          },
-        ])
+        .insert({
+          id: data.user.id,
+          email,
+          full_name,
+          role: 'admin',
+          school_id: schoolData.id,
+        })
 
       if (profileError) throw profileError
 
-      await refreshUser()
-
-      return { success: true, user: user as AppUser, message: 'Sign up successful' }
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        console.error('Error signing up:', error.message)
-        return { success: false, message: error.message }
+      const newUser: AppUser = {
+        id: data.user.id,
+        email,
+        full_name,
+        role: 'school_admin',
+        school_id: schoolData.id,
+        created_at: data.user.created_at ?? '',
       }
-      console.error('Unknown error during sign up:', error)
-      return { success: false, message: 'An unknown error occurred during sign up' }
+
+      setUser(newUser)
+
+      return { success: true, message: 'Sign up successful', user: newUser }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error('SignUp Error:', message)
+      return { success: false, message }
     }
   }
 
+  // 🔹 Sign in
   const signIn = async (email: string, password: string): Promise<AuthResponse> => {
     try {
-      const { data: { user }, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) throw error
-      if (!user) throw new Error('No user returned after sign in')
+      if (!data.user) throw new Error('Invalid credentials')
 
-      await refreshUser()
-      return { success: true, user: user as AppUser, message: 'Sign in successful' }
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        console.error('Error signing in:', error.message)
-        return { success: false, message: error.message }
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', data.user.id)
+        .single()
+
+      if (profileError) throw profileError
+
+      const loggedInUser: AppUser = {
+        id: data.user.id,
+        email: data.user.email ?? '',
+        full_name: profile.full_name,
+        role: profile.role,
+        school_id: profile.school_id,
+        created_at: data.user.created_at ?? '',
       }
-      console.error('Unknown error during sign in:', error)
-      return { success: false, message: 'An unknown error occurred during sign in' }
+
+      setUser(loggedInUser)
+      return { success: true, message: 'Sign in successful', user: loggedInUser }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error('SignIn Error:', message)
+      return { success: false, message }
     }
   }
 
-  const signOut = async (): Promise<void> => {
-    const { error } = await supabase.auth.signOut()
-    if (error) throw error
+  // 🔹 Sign out
+  const signOut = async () => {
+    await supabase.auth.signOut()
     setUser(null)
+  }
+
+  // 🔹 Refresh user
+  const refreshUser = async () => {
+    const { data } = await supabase.auth.getSession()
+    const sessionUser = data.session?.user
+    if (sessionUser) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', sessionUser.id)
+        .single()
+
+      if (profile) {
+        setUser({
+          id: sessionUser.id,
+          email: sessionUser.email ?? '',
+          full_name: profile.full_name,
+          role: profile.role,
+          school_id: profile.school_id,
+          created_at: sessionUser.created_at ?? '',
+        })
+      }
+    }
   }
 
   return { user, loading, signUp, signIn, signOut, refreshUser }

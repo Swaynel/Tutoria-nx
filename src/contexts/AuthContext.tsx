@@ -1,11 +1,11 @@
-import { createContext, useContext, ReactNode } from 'react'
+import React, { createContext, useContext, ReactNode } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { AppUser } from '../types'
 
 interface AuthResponse {
   success: boolean
   message?: string
-  user?: AppUser
+  user?: AppUser | null
 }
 
 interface AuthContextType {
@@ -21,7 +21,6 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const auth = useAuth()
-
   return <AuthContext.Provider value={auth}>{children}</AuthContext.Provider>
 }
 

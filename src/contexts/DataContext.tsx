@@ -119,7 +119,7 @@ export function DataProvider({ children }: DataProviderProps) {
           const { error: insertError } = await supabase.from('profiles').insert({
             id: user.id,
             email: user.email,
-            full_name: user.user_metadata?.full_name || user.email.split('@')[0],
+            full_name: user.full_name || user.email.split('@')[0],
             role: 'teacher' as UserRole,
           })
           if (insertError) throw insertError
@@ -192,8 +192,7 @@ export function DataProvider({ children }: DataProviderProps) {
 
   // --- Individual CRUD operations ---
   const addPayment = useCallback(async (payment: Omit<Payment, 'id' | 'created_at' | 'updated_at' | 'school_id'>, school_id?: string) => {
-    // Prefer explicit school_id param, then profile's school_id, then auth metadata
-    const targetSchool = school_id || (userProfile?.school_id || null) || (user?.user_metadata as { school_id?: string })?.school_id || null
+  const targetSchool = school_id || userProfile?.school_id || null
     if (!targetSchool) {
       throw new Error('Cannot add payment: No school ID available. Please select or assign a school to your profile.')
     }
@@ -223,8 +222,7 @@ export function DataProvider({ children }: DataProviderProps) {
   }, [])
 
   const addStudent = useCallback(async (student: Omit<Student, 'id' | 'created_at' | 'school_id' | 'updated_at'>, school_id?: string) => {
-    // Allow callers to pass an explicit school_id (useful for superadmins creating students for a specific school)
-    const targetSchool = school_id || (userProfile?.school_id || null) || (user?.user_metadata as { school_id?: string })?.school_id || null
+  const targetSchool = school_id || userProfile?.school_id || null
     if (!targetSchool) {
       throw new Error('Cannot add student: No school ID available. Please select or assign a school to your profile before adding students.')
     }
@@ -233,7 +231,7 @@ export function DataProvider({ children }: DataProviderProps) {
       .insert({ 
         ...student,
         school_id: targetSchool,
-        is_active: student.is_active ?? true // Set default if not provided
+  // ...existing code...
       })
       .select()
       .single()

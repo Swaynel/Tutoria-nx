@@ -142,10 +142,14 @@ export default function Payments(): ReactElement {
             onChange={(e) => setSearch(e.target.value)}
             className="border rounded px-2 py-1 w-full md:w-64"
           />
+          <label htmlFor="sortKey" className="sr-only">Sort by</label>
           <select
+            id="sortKey"
             value={sortKey}
             onChange={(e) => setSortKey(e.target.value as SortKey)}
             className="border rounded px-2 py-1"
+            title="Sort by"
+            aria-label="Sort by"
           >
             <option value="paid_at">Date</option>
             <option value="amount">Amount</option>
@@ -258,5 +262,5 @@ export default function Payments(): ReactElement {
         </div>
       )}
     </div>
-  )
+  );
 }
