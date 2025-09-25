@@ -331,7 +331,7 @@ async function seed() {
         }]);
         await sms.send({
           to: DEV_TEST_PHONE,
-          message: "✅ Tuitora dev seed complete! Check Supabase dashboard.",
+          message: "✅ Tuitora dev seed complete! Check Supabase's dashboard.",
           from: AT_SHORTCODE,
         });
         console.log("📲 Demo SMSes sent!");
