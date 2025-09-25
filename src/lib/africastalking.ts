@@ -84,18 +84,9 @@ export interface USSDResponse {
 export const formatPhoneNumber = (phone: string): string => {
   const digits = phone.replace(/\D/g, '')
 
-  if (digits.startsWith('0') && digits.length === 10) {
-    return '+254' + digits.substring(1)
-  }
-
-  if (digits.startsWith('254') && digits.length === 12) {
-    return '+' + digits
-  }
-
-  if (digits.startsWith('7') && digits.length === 9) {
-    return '+254' + digits
-  }
-
+  if (digits.startsWith('0') && digits.length === 10) return '+254' + digits.substring(1)
+  if (digits.startsWith('254') && digits.length === 12) return '+' + digits
+  if (digits.startsWith('7') && digits.length === 9) return '+254' + digits
   return phone
 }
 
@@ -108,16 +99,15 @@ if (typeof window === 'undefined') {
   const apiKey = process.env.AFRICAS_TALKING_API_KEY
   const username = process.env.AFRICAS_TALKING_USERNAME
 
-  if (!apiKey || !username || apiKey === 'placeholder' || username === 'placeholder') {
-    console.error("Africa's Talking API credentials missing or invalid - SMS/USSD features will be disabled")
+  if (apiKey && username && apiKey !== 'placeholder' && username !== 'placeholder') {
+    // Properly type the AfricasTalking initialization
+    africastalking = AfricasTalking({ 
+      apiKey, 
+      username 
+    }) as unknown as AfricasTalkingInstance
+    console.log("Africa's Talking SDK initialized successfully")
   } else {
-    try {
-      const at = AfricasTalking({ apiKey, username }) as unknown
-      africastalking = at as AfricasTalkingInstance
-      console.log("Africa's Talking SDK initialized successfully")
-    } catch (err) {
-      console.error("Failed to initialize Africa's Talking SDK:", err)
-    }
+    console.warn("Africa's Talking API credentials missing or invalid - SMS/USSD disabled")
   }
 }
 
@@ -125,85 +115,31 @@ if (typeof window === 'undefined') {
 // SMS Functions
 // ========================
 export const sendSMS = async (to: string[], message: string): Promise<SMSResult[]> => {
-  if (typeof window !== 'undefined') {
-    console.warn('sendSMS called from browser - this should be a server-side operation')
-    return to.map((recipient) => ({
-      recipient,
-      success: false,
-      error: 'SMS must be sent from server-side',
-    }))
+  if (typeof window !== 'undefined' || !africastalking) {
+    return to.map((recipient) => ({ recipient, success: false, error: 'SMS must be sent from server-side' }))
   }
 
-  if (!africastalking) {
-    // Check if this is due to missing credentials
-    const credentialsMissing = !process.env.AFRICAS_TALKING_API_KEY || !process.env.AFRICAS_TALKING_USERNAME || 
-      process.env.AFRICAS_TALKING_API_KEY === 'placeholder' || process.env.AFRICAS_TALKING_USERNAME === 'placeholder'
-    
-    const errorMessage = credentialsMissing
-      ? "Africa's Talking credentials not configured. Please check your environment variables."
-      : "Africa's Talking SDK initialization failed. The service may be temporarily unavailable."
-    
-    console.warn(`SMS disabled: ${errorMessage}`)
-    return to.map((recipient) => ({
-      recipient,
-      success: false,
-      error: errorMessage,
-    }))
-  }
-
-  const sendOnce = async () => {
-    const formattedMessage = `${message}\n\n- ${AT_CONFIG.SMS_SENDER_ID}`
-    const result = await africastalking!.SMS.send({
+  try {
+    const result = await africastalking.SMS.send({
       to,
-      message: formattedMessage,
+      message: `${message}\n\n- ${AT_CONFIG.SMS_SENDER_ID}`,
       from: AT_CONFIG.SMS_SHORT_CODE,
       enqueue: true,
     })
 
-    return result.SMSMessageData.Recipients.map((recipient) => ({
-      recipient: recipient.number,
-      success: recipient.status === 'Success',
-      messageId: recipient.messageId,
-      cost: recipient.cost,
-      error: recipient.status !== 'Success' ? recipient.status : undefined,
+    return result.SMSMessageData.Recipients.map((r) => ({
+      recipient: r.number,
+      success: r.status === 'Success',
+      messageId: r.messageId,
+      cost: r.cost,
+      error: r.status !== 'Success' ? r.status : undefined,
     }))
-  }
-
-  try {
-    // Try once; if it fails, retry once after a short delay
-    try {
-      return await sendOnce()
-    } catch (firstErr) {
-      // Check if this is a temporary error worth retrying
-      const shouldRetry = firstErr instanceof Error && (
-        firstErr.message.includes('timeout') ||
-        firstErr.message.includes('network') ||
-        firstErr.message.includes('ECONNRESET') ||
-        firstErr.message.toLowerCase().includes('temporary')
-      )
-
-      if (!shouldRetry) {
-        throw firstErr // Don't retry permanent errors
-      }
-
-      console.warn('sendSMS first attempt failed, retrying once...', { error: firstErr, recipients: to })
-      await new Promise((r) => setTimeout(r, 1000)) // Longer delay for retry
-      return await sendOnce()
-    }
-  } catch (error) {
-    const err = error instanceof Error ? error : new Error('Unknown SMS error')
-    console.error("Africa's Talking SMS API error:", err)
-    return to.map((recipient) => ({
-      recipient,
-      success: false,
-      error: err.message || 'Failed to send SMS',
-    }))
+  } catch (err) {
+    console.error("Africa's Talking SMS error:", err)
+    return to.map((recipient) => ({ recipient, success: false, error: (err as Error).message }))
   }
 }
 
-// ========================
-// Bulk SMS
-// ========================
 export const sendBulkSMS = async (
   recipients: Array<{ phone: string; name?: string }>,
   message: string
@@ -216,51 +152,22 @@ export const sendBulkSMS = async (
     const batch = phoneNumbers.slice(i, i + batchSize)
     const batchResults = await sendSMS(batch, message)
     results.push(...batchResults)
-
-    if (i + batchSize < phoneNumbers.length) {
-      await new Promise((resolve) => setTimeout(resolve, 1000)) // rate limit
-    }
+    if (i + batchSize < phoneNumbers.length) await new Promise((r) => setTimeout(r, 1000))
   }
 
   return results
 }
 
-// ========================
-// WhatsApp Function
-// ========================
 export const sendWhatsApp = async (to: string[], message: string): Promise<WhatsAppResult[]> => {
-  if (typeof window !== 'undefined') {
-    throw new Error('sendWhatsApp can only be used on the server side')
-  }
-
-  // Currently a stub using sendSMS as fallback
   const smsResults = await sendSMS(to, `[WhatsApp] ${message}`)
-
-  return smsResults.map((r) => ({
-    recipient: r.recipient,
-    success: r.success,
-    messageId: r.messageId,
-    error: r.error,
-  }))
+  return smsResults.map((r) => ({ recipient: r.recipient, success: r.success, messageId: r.messageId, error: r.error }))
 }
 
 // ========================
 // USSD Functions
 // ========================
-export const initiateUSSD = async (
-  phoneNumber: string,
-  serviceCode: string = AT_CONFIG.USSD_SERVICE_CODE
-): Promise<USSDSession> => {
-  if (typeof window !== 'undefined') {
-    throw new Error('initiateUSSD can only be used on the server side')
-  }
-
-  if (!africastalking) {
-    throw new Error("Africa's Talking not initialized")
-  }
-
+export const initiateUSSD = async (phoneNumber: string, serviceCode = AT_CONFIG.USSD_SERVICE_CODE): Promise<USSDSession> => {
   const sessionId = `ussd_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
-
   return {
     sessionId,
     phoneNumber: formatPhoneNumber(phoneNumber),
@@ -269,356 +176,504 @@ export const initiateUSSD = async (
   }
 }
 
-export const processUSSDResponse = async (
-  session: USSDSession,
-  text: string
-): Promise<USSDResponse> => {
-  if (typeof window !== 'undefined') {
-    throw new Error('processUSSDResponse can only be used on the server side')
+export const processUSSDResponse = async (session: USSDSession, text: string): Promise<USSDResponse> => {
+  const inputs = text.split('*').filter((i) => i)
+  let responseText: string
+
+  switch (inputs[0] as USSDOption) {
+    case '1':
+      responseText = await getAttendanceUSSD(session.phoneNumber, inputs)
+      break
+    case '2':
+      responseText = await getFeesUSSD(session.phoneNumber, inputs)
+      break
+    case '3':
+      responseText = 'Contact your school admin at: 0700-000-000\nOr visit: tuitora.com'
+      break
+    default:
+      responseText = 'Welcome to Tuitora. Select option:\n1. Check Attendance\n2. Check Fees\n3. Contact School'
+      break
   }
 
-  try {
-    const inputs = text.split('*').filter((input) => input.length > 0)
+  await supabase.from('ussd_sessions').insert([{
+    session_id: session.sessionId,
+    phone: session.phoneNumber,
+    input_text: text,
+    response_text: responseText,
+    status: 'pending',
+    created_at: new Date().toISOString(),
+  }]).match((err: unknown) => console.error('USSD log error:', err))
 
-    let responseText: string
-
-    // Route based on the first input (main menu choice)
-    const mainChoice = inputs[0] as USSDOption | undefined
-
-    switch (mainChoice) {
-      case '1':
-        responseText = await getAttendanceViaUSSD(session.phoneNumber, inputs)
-        break
-      case '2':
-        responseText = await getFeesViaUSSD(session.phoneNumber, inputs)
-        break
-      case '3':
-        responseText = 'Contact your school admin at: 0700-000-000\nOr visit: tuitora.com'
-        break
-      case '0':
-      case '00':
-      default:
-        responseText = 'Welcome to Tuitora. Select option:\n1. Check Attendance\n2. Check Fees\n3. Contact School'
-        break
-    }
-
-    // Log session to Supabase (best-effort)
-    try {
-      await logUSSDSession(session.sessionId, session.phoneNumber, text, responseText, 'pending')
-    } catch (err) {
-      console.error('Failed to log USSD session:', err)
-    }
-
-    return {
-      sessionId: session.sessionId,
-      phoneNumber: session.phoneNumber,
-      text: responseText,
-      status: 'pending',
-    }
-  } catch (error) {
-    const err = error instanceof Error ? error : new Error('Unknown USSD error')
-    console.error('USSD processing error:', err)
-    return {
-      sessionId: session.sessionId,
-      phoneNumber: session.phoneNumber,
-      text: 'Sorry, service temporarily unavailable. Please try again later.',
-      status: 'pending',
-    }
-  }
+  return { sessionId: session.sessionId, phoneNumber: session.phoneNumber, text: responseText, status: 'pending' }
 }
 
 // ========================
-// Mock USSD services
+// USSD DB functions based on your actual database schema
 // ========================
-type ParentRelRow = { student_id: string; profiles?: { phone?: string } }
-type AttendanceRow = { status: string }
 
-// Simple in-memory cache for lookups (phone -> studentIds)
-const lookupCache = new Map<string, { studentIds: string[]; expiresAt: number }>()
-const CACHE_TTL_MS = 60_000 // 1 minute
-
-const getCachedStudentIds = (phone: string): string[] | null => {
-  const entry = lookupCache.get(phone)
-  if (!entry) return null
-  if (Date.now() > entry.expiresAt) {
-    lookupCache.delete(phone)
-    return null
-  }
-  return entry.studentIds
-}
-
-const setCachedStudentIds = (phone: string, studentIds: string[]) => {
-  lookupCache.set(phone, { studentIds, expiresAt: Date.now() + CACHE_TTL_MS })
-}
-
-const getAttendanceViaUSSD = async (phone?: string, inputs?: string[]): Promise<string> => {
+const getAttendanceUSSD = async (phone: string, inputs: string[]): Promise<string> => {
   try {
-    if (!phone) {
-      return `ATTENDANCE SUMMARY:\nNo phone number provided.\n0. Back\n00. Main Menu`
+    console.log('Fetching attendance for phone:', phone)
+    
+    let studentIds: string[] = []
+
+    // Method 1: Check if phone belongs to a profile (user)
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('id, role, full_name,school_id')
+      .eq('phone', phone)
+      .single()
+
+    if (profile && !profileError) {
+      console.log('Profile found:', profile)
+
+      if (profile.role === 'parent') {
+        // Find students through parent_student_relationships
+        const { data: relationships, error: relError } = await supabase
+          .from('parent_student_relationships')
+          .select(`
+            student_id,
+            students(id, name)
+          `)
+          .eq('parent_user_id', profile.id)
+
+        if (!relError && relationships) {
+          studentIds = relationships.map(r => r.student_id)
+          console.log('Students found via profile parent relationships:', studentIds)
+        }
+      } else if (profile.role === 'student') {
+        // If profile is a student, find matching student record by name/email
+        const { data: student } = await supabase
+          .from('students')
+          .select('id, name')
+          .eq('school_id', profile.school_id ?? '')
+          .ilike('name', `%${profile.full_name}%`) // Fuzzy match by name
+          .single()
+
+        if (student) {
+          studentIds.push(student.id)
+          console.log('Student found via profile match:', student)
+        }
+      }
     }
 
-  // Try cache first
-  let studentIds = phone ? getCachedStudentIds(phone) || [] : []
-
-  if (studentIds.length === 0) {
-      // Try to find parent_student_relationships by profile phone
-      const { data: rels, error: relError } = await supabase
-        .from('parent_student_relationships')
-        .select('student_id, profiles (phone)')
-        .eq('profiles.phone', phone)
-
-      if (relError) throw relError
-
-      studentIds = (rels as ParentRelRow[] | null)?.map((r) => r.student_id) || []
-      if (studentIds.length > 0) setCachedStudentIds(phone, studentIds)
-    }
-
-  if (studentIds.length === 0) {
-      // Maybe it's a student's own phone
-      const { data: student, error: stuErr } = await supabase
-        .from('students')
-        .select('id')
+    // Method 2: Check if phone belongs to a parent directly
+    if (studentIds.length === 0) {
+      const { data: parent, error: parentError } = await supabase
+        .from('parents')
+        .select('id, full_name')
         .eq('phone', phone)
         .single()
-      if (stuErr) throw stuErr
-      if (student) {
-        studentIds.push(student.id)
-        setCachedStudentIds(phone, [student.id])
+
+      if (parent && !parentError) {
+        console.log('Direct parent found:', parent)
+
+        const { data: relationships, error: relError } = await supabase
+          .from('parent_student_relationships')
+          .select(`
+            student_id,
+            students(id, name)
+          `)
+          .eq('parent_user_id', parent.id)
+
+        if (!relError && relationships) {
+          studentIds = relationships.map(r => r.student_id)
+          console.log('Students found via direct parent relationships:', studentIds)
+        }
+      }
+    }
+
+    // Method 3: Check guardian phone in students table
+    if (studentIds.length === 0) {
+      const { data: students, error: guardianError } = await supabase
+        .from('students')
+        .select('id, name, guardian_name')
+        .eq('guardian_phone', phone)
+
+      if (!guardianError && students && students.length > 0) {
+        studentIds = students.map(s => s.id)
+        console.log('Students found via guardian phone:', students)
       }
     }
 
     if (studentIds.length === 0) {
-      return `ATTENDANCE SUMMARY:\nNo student found for this phone number.\n0. Back\n00. Main Menu`
+      console.log('No students found for phone:', phone)
+      return 'ATTENDANCE SUMMARY:\nNo student found for this number.\n0. Back\n00. Main Menu'
     }
 
-    // If multiple students, and only main menu selected (inputs length === 1), show selection menu with real names
-    if (studentIds.length > 1 && (!inputs || inputs.length === 1)) {
-      try {
-        type StudentRow = { id: string; name?: string }
-        const { data: stuRows } = await supabase.from('students').select('id, name').in('id', studentIds)
-        const ordered = studentIds.map((id, idx) => {
-          const found = (stuRows as StudentRow[] | null)?.find((s) => s.id === id)
-          const display = found?.name || `Student ${idx + 1}`
-          return `${idx + 1}. ${display}`
-        })
-        const list = ordered.join('\n')
-        return `MULTIPLE STUDENTS FOUND:\n${list}\nSelect a number to view that student's attendance\n0. Back\n00. Main Menu`
-      } catch (err) {
-        console.error('Failed to fetch student names for USSD selection:', err)
-        const list = studentIds.map((id, idx) => `${idx + 1}. Student ${idx + 1}`).join('\n')
-        return `MULTIPLE STUDENTS FOUND:\n${list}\nSelect a number to view that student's attendance\n0. Back\n00. Main Menu`
+    // Handle multiple students
+    if (studentIds.length > 1 && inputs.length === 1) {
+      const { data: students, error: studentsError } = await supabase
+        .from('students')
+        .select('id, name')
+        .in('id', studentIds)
+
+      if (studentsError) {
+        console.error('Students query error:', studentsError)
+        return 'ATTENDANCE SUMMARY:\nError fetching student data.\n0. Back\n00. Main Menu'
+      }
+
+      const menu = studentIds.map((id, i) => {
+        const student = students?.find(s => s.id === id)
+        return `${i + 1}. ${student?.name || 'Student ' + (i + 1)}`
+      }).join('\n')
+
+      return `MULTIPLE STUDENTS:\n${menu}\nSelect a number\n0. Back\n00. Main Menu`
+    }
+
+    // Select specific student if multiple
+    let studentId = studentIds[0]
+    if (inputs.length >= 2 && studentIds.length > 1) {
+      const selection = parseInt(inputs[1], 10)
+      if (!isNaN(selection) && selection >= 1 && selection <= studentIds.length) {
+        studentId = studentIds[selection - 1]
       }
     }
 
-    // If selection provided (e.g., inputs[1] = '2'), pick that student
-    let chosenStudentId = studentIds[0]
-    if (studentIds.length > 1 && inputs && inputs.length >= 2) {
-      const sel = parseInt(inputs[1], 10)
-      if (!Number.isNaN(sel) && sel >= 1 && sel <= studentIds.length) {
-        chosenStudentId = studentIds[sel - 1]
-      }
-    }
+    console.log('Fetching attendance for student ID:', studentId)
 
-    // Fetch student record to determine school
-    type StudentRowFull = { id: string; name?: string; school_id?: string }
-    const { data: studentRow, error: studErr } = await supabase
+    // Get student name for display
+    const { data: student } = await supabase
       .from('students')
-      .select('id, name, school_id')
-      .eq('id', chosenStudentId)
+      .select('name')
+      .eq('id', studentId)
       .single()
-    if (studErr) throw studErr
 
-    const schoolId = (studentRow as StudentRowFull | null)?.school_id || null
-    if (!schoolId) {
-      return `ATTENDANCE SUMMARY:\nNo school assigned to this student. Please contact your school admin.\n0. Back\n00. Main Menu`
-    }
-
-    // Check if the school is premium
-    type SchoolRow = { id: string; name?: string; is_premium?: boolean }
-    const { data: schoolRow, error: schoolErr } = await supabase
-      .from('schools')
-      .select('id, name, is_premium')
-      .eq('id', schoolId)
-      .single()
-    if (schoolErr) throw schoolErr
-
-    if (!schoolRow || !schoolRow.is_premium) {
-      // Upsell message for non-premium schools
-      const schoolName = schoolRow?.name || 'your school'
-      return `TUITORA PREMIUM REQUIRED:\nThe USSD attendance feature is available for Tuitora Premium schools.\\nTo upgrade ${schoolName}, visit:\nhttps://tuitora.com/pricing\nOr contact sales: +254700000000\n0. Back\n00. Main Menu`
-    }
-
-    // Fetch recent attendance records for these students (last 30 days)
-    const fromDate = new Date()
-    fromDate.setDate(fromDate.getDate() - 30)
-
-    const { data: attendanceRows, error: attError } = await supabase
+    // Get attendance data for last 30 days
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    const { data: attendance, error: attendanceError } = await supabase
       .from('attendance')
-      .select('status')
-      .eq('student_id', chosenStudentId)
-      .gt('date', fromDate.toISOString().split('T')[0])
+      .select('status, date')
+      .eq('student_id', studentId)
+      .gte('date', thirtyDaysAgo)
 
-    if (attError) throw attError
+    if (attendanceError) {
+      console.error('Attendance query error:', attendanceError)
+      return 'ATTENDANCE SUMMARY:\nError fetching attendance data.\n0. Back\n00. Main Menu'
+    }
 
-    const present = (attendanceRows as AttendanceRow[] | null || []).filter((r) => r.status === 'present').length
-    const absent = (attendanceRows as AttendanceRow[] | null || []).filter((r) => r.status === 'absent').length
-    const late = (attendanceRows as AttendanceRow[] | null || []).filter((r) => r.status === 'late').length
+    console.log('Attendance data found:', attendance?.length || 0, 'records')
 
-    return `ATTENDANCE SUMMARY:\nPresent: ${present} days\nAbsent: ${absent} days\nLate: ${late} days\nLast update: ${new Date().toLocaleDateString()}\n\n0. Back\n00. Main Menu`
-  } catch (error) {
-    console.error('getAttendanceViaUSSD error:', error)
-    return `ATTENDANCE SUMMARY:\nUnable to retrieve attendance at the moment.\n0. Back\n00. Main Menu`
+    const present = attendance?.filter(a => a.status === 'present').length || 0
+    const absent = attendance?.filter(a => a.status === 'absent').length || 0
+    const late = attendance?.filter(a => a.status === 'late').length || 0
+    const excused = attendance?.filter(a => a.status === 'excused').length || 0
+    const total = present + absent + late + excused
+
+    const studentName = student?.name ? ` - ${student.name}` : ''
+
+    return `ATTENDANCE${studentName}\n(Last 30 days)\nTotal: ${total}\nPresent: ${present}\nAbsent: ${absent}\nLate: ${late}\nExcused: ${excused}\n0. Back\n00. Main Menu`
+
+  } catch (err) {
+    console.error('Attendance USSD error:', err)
+    return 'ATTENDANCE SUMMARY:\nSystem error. Please try again.\n0. Back\n00. Main Menu'
   }
 }
 
-type PaymentRow = { amount?: number; status?: string }
-
-const getFeesViaUSSD = async (phone?: string, inputs?: string[]): Promise<string> => {
+const getFeesUSSD = async (phone: string, inputs: string[]): Promise<string> => {
   try {
-    if (!phone) {
-      return `FEES SUMMARY:\nNo phone number provided.\n0. Back\n00. Main Menu`
-    }
-    // Try cache first
-    let studentIds = phone ? getCachedStudentIds(phone) || [] : []
+    console.log('Fetching fees for phone:', phone)
 
+    let studentIds: string[] = []
+
+    // Method 1: Check if phone belongs to a profile (user)
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('id, role, full_name, school_id')
+      .eq('phone', phone)
+      .single()
+
+    if (profile && !profileError) {
+      console.log('Profile found:', profile)
+
+      if (profile.role === 'parent') {
+        // Find students through parent_student_relationships
+        const { data: relationships, error: relError } = await supabase
+          .from('parent_student_relationships')
+          .select(`
+            student_id,
+            students(id, name)
+          `)
+          .eq('parent_user_id', profile.id)
+
+        if (!relError && relationships) {
+          studentIds = relationships.map(r => r.student_id)
+          console.log('Students found via profile parent relationships:', studentIds)
+        }
+      } else if (profile.role === 'student') {
+        // If profile is a student, find matching student record
+        const { data: student } = await supabase
+          .from('students')
+          .select('id, name')
+          .eq('school_id', profile.school_id)
+          .ilike('name', `%${profile.full_name}%`)
+          .single()
+
+        if (student) {
+          studentIds.push(student.id)
+          console.log('Student found via profile match:', student)
+        }
+      }
+    }
+
+    // Method 2: Check if phone belongs to a parent directly
     if (studentIds.length === 0) {
-      const { data: rels, error: relError } = await supabase
-        .from('parent_student_relationships')
-        .select('student_id, profiles (phone)')
-        .eq('profiles.phone', phone)
-
-      if (relError) throw relError
-
-      studentIds = (rels as ParentRelRow[] | null)?.map((r) => r.student_id) || []
-      if (studentIds.length > 0 && phone) setCachedStudentIds(phone, studentIds)
-    }
-
-    let studentId: string | null = studentIds.length > 0 ? studentIds[0] : null
-
-    if (!studentId) {
-      const { data: student, error: stuErr } = await supabase
-        .from('students')
-        .select('id')
+      const { data: parent, error: parentError } = await supabase
+        .from('parents')
+        .select('id, full_name')
         .eq('phone', phone)
         .single()
-      if (stuErr) throw stuErr
-      if (student) {
-        studentId = student.id
-        if (phone && studentId) setCachedStudentIds(phone, [studentId])
+
+      if (parent && !parentError) {
+        console.log('Direct parent found:', parent)
+
+        const { data: relationships, error: relError } = await supabase
+          .from('parent_student_relationships')
+          .select(`
+            student_id,
+            students(id, name)
+          `)
+          .eq('parent_user_id', parent.id)
+
+        if (!relError && relationships) {
+          studentIds = relationships.map(r => r.student_id)
+          console.log('Students found via direct parent relationships:', studentIds)
+        }
       }
     }
 
-    if (!studentId) {
-      return `FEES SUMMARY:\nNo student found for this phone number.\n0. Back\n00. Main Menu`
-    }
+    // Method 3: Check guardian phone in students table
+    if (studentIds.length === 0) {
+      const { data: students, error: guardianError } = await supabase
+        .from('students')
+        .select('id, name, guardian_name')
+        .eq('guardian_phone', phone)
 
-    // Multi-student handling: if multiple studentIds and no selection provided, ask user to choose (show names)
-    if (studentIds.length > 1 && (!inputs || inputs.length === 1)) {
-      try {
-        type StudentRow = { id: string; name?: string }
-        const { data: stuRows } = await supabase.from('students').select('id, name').in('id', studentIds)
-        const ordered = studentIds.map((id, idx) => {
-          const found = (stuRows as StudentRow[] | null)?.find((s) => s.id === id)
-          const display = found?.name || `Student ${idx + 1}`
-          return `${idx + 1}. ${display}`
-        })
-        const list = ordered.join('\n')
-        return `MULTIPLE STUDENTS FOUND:\n${list}\nSelect a number to view that student's fees\n0. Back\n00. Main Menu`
-      } catch (err) {
-        console.error('Failed to fetch student names for USSD fees selection:', err)
-        const list = studentIds.map((id, idx) => `${idx + 1}. Student ${idx + 1}`).join('\n')
-        return `MULTIPLE STUDENTS FOUND:\n${list}\nSelect a number to view that student's fees\n0. Back\n00. Main Menu`
+      if (!guardianError && students && students.length > 0) {
+        studentIds = students.map(s => s.id)
+        console.log('Students found via guardian phone:', students)
       }
     }
 
-    // If a selection was provided, pick the specified student
-    let chosen = studentId
-    if (studentIds.length > 1 && inputs && inputs.length >= 2) {
-      const sel = parseInt(inputs[1], 10)
-      if (!Number.isNaN(sel) && sel >= 1 && sel <= studentIds.length) {
-        chosen = studentIds[sel - 1]
+    if (studentIds.length === 0) {
+      console.log('No students found for phone:', phone)
+      return 'FEES SUMMARY:\nNo student found for this number.\n0. Back\n00. Main Menu'
+    }
+
+    // Handle multiple students
+    if (studentIds.length > 1 && inputs.length === 1) {
+      const { data: students, error: studentsError } = await supabase
+        .from('students')
+        .select('id, name')
+        .in('id', studentIds)
+
+      if (studentsError) {
+        console.error('Students query error:', studentsError)
+        return 'FEES SUMMARY:\nError fetching student data.\n0. Back\n00. Main Menu'
+      }
+
+      const menu = studentIds.map((id, i) => {
+        const student = students?.find(s => s.id === id)
+        return `${i + 1}. ${student?.name || 'Student ' + (i + 1)}`
+      }).join('\n')
+
+      return `MULTIPLE STUDENTS:\n${menu}\nSelect a number\n0. Back\n00. Main Menu`
+    }
+
+    // Select specific student if multiple
+    let studentId = studentIds[0]
+    if (inputs.length >= 2 && studentIds.length > 1) {
+      const selection = parseInt(inputs[1], 10)
+      if (!isNaN(selection) && selection >= 1 && selection <= studentIds.length) {
+        studentId = studentIds[selection - 1]
       }
     }
 
-    // Fetch student to determine school
-    type StudentRowFull = { id: string; name?: string; school_id?: string }
-    const { data: studentRow, error: studErr } = await supabase
+    console.log('Fetching fees for student ID:', studentId)
+
+    // Get student name for display
+    const { data: student } = await supabase
       .from('students')
-      .select('id, name, school_id')
-      .eq('id', chosen)
+      .select('name')
+      .eq('id', studentId)
       .single()
-    if (studErr) throw studErr
 
-    const schoolId = (studentRow as StudentRowFull | null)?.school_id || null
-    if (!schoolId) {
-      return `FEES SUMMARY:\nNo school assigned to this student. Please contact your school admin.\n0. Back\n00. Main Menu`
-    }
-
-    // Check if the school is premium
-    type SchoolRow = { id: string; name?: string; is_premium?: boolean }
-    const { data: schoolRow, error: schoolErr } = await supabase
-      .from('schools')
-      .select('id, name, is_premium')
-      .eq('id', schoolId)
-      .single()
-    if (schoolErr) throw schoolErr
-
-    if (!schoolRow || !schoolRow.is_premium) {
-      const schoolName = schoolRow?.name || 'your school'
-      return `TUITORA PREMIUM REQUIRED:\nThe USSD fees feature is available for Tuitora Premium schools.\nTo upgrade ${schoolName}, visit:\nhttps://tuitora.com/pricing\nOr contact sales: +254700000000\n0. Back\n00. Main Menu`
-    }
-
-    // Calculate fees by summing payments and looking for expected fees
-    const { data: paymentsRows, error: payErr } = await supabase
+    // Get payment data - all payments for this student
+    const { data: payments, error: paymentsError } = await supabase
       .from('payments')
-      .select('amount, status')
-      .eq('student_id', chosen)
+      .select('amount, description, status, fee_type, due_date, paid_at')
+      .eq('student_id', studentId)
+      .order('created_at', { ascending: false })
 
-    if (payErr) throw payErr
+    if (paymentsError) {
+      console.error('Payments query error:', paymentsError)
+      return 'FEES SUMMARY:\nError fetching payment data.\n0. Back\n00. Main Menu'
+    }
 
-    const paid = (paymentsRows as PaymentRow[] | null || []).filter((p) => p.status === 'paid').reduce((s: number, p) => s + (p.amount || 0), 0)
-    const due = (paymentsRows as PaymentRow[] | null || []).filter((p) => p.status !== 'paid').reduce((s: number, p) => s + (p.amount || 0), 0)
+    console.log('Payment data found:', payments?.length || 0, 'records')
 
-    return `FEES SUMMARY:\nTotal Due: KES ${due + paid}\nPaid: KES ${paid}\nBalance: KES ${due}\n\n0. Back\n00. Main Menu`
-  } catch (error) {
-    console.error('getFeesViaUSSD error:', error)
-    return `FEES SUMMARY:\nUnable to retrieve fee information at the moment.\n0. Back\n00. Main Menu`
+    if (!payments || payments.length === 0) {
+      const studentName = student?.name ? ` - ${student.name}` : ''
+      return `FEES SUMMARY${studentName}\nNo fee records found.\n0. Back\n00. Main Menu`
+    }
+
+    // Calculate totals based on payment status
+    const completedPayments = payments.filter(p => p.status === 'completed')
+    const pendingPayments = payments.filter(p => p.status === 'pending')
+    const failedPayments = payments.filter(p => p.status === 'failed')
+
+    const totalPaid = completedPayments.reduce((sum, p) => sum + (p.amount || 0), 0)
+    const totalPending = pendingPayments.reduce((sum, p) => sum + (p.amount || 0), 0)
+    const totalFailed = failedPayments.reduce((sum, p) => sum + (p.amount || 0), 0)
+    const grandTotal = totalPaid + totalPending + totalFailed
+
+    const studentName = student?.name ? ` - ${student.name}` : ''
+
+    return `FEES SUMMARY${studentName}\nTotal Fees: KES ${grandTotal.toLocaleString()}\nPaid: KES ${totalPaid.toLocaleString()}\nPending: KES ${totalPending.toLocaleString()}\nBalance: KES ${(totalPending + totalFailed).toLocaleString()}\n0. Back\n00. Main Menu`
+
+  } catch (err) {
+    console.error('Fees USSD error:', err)
+    return 'FEES SUMMARY:\nSystem error. Please try again.\n0. Back\n00. Main Menu'
   }
 }
 
 // ========================
-// Get SDK Client
+// Improved USSD session logging
 // ========================
-const logUSSDSession = async (
+export const logUSSDSession = async (
   sessionId: string,
   phone: string,
+  serviceCode: string,
   inputText: string,
   responseText: string,
-  status: 'pending' | 'completed' | 'failed'
-) => {
+  step = 1
+): Promise<void> => {
   try {
-    await supabase.from('ussd_sessions').insert([
-      {
+    const { error } = await supabase
+      .from('ussd_sessions')
+      .insert([{
         session_id: sessionId,
-        phone,
+        phone: phone,
+        service_code: serviceCode,
         input_text: inputText,
         response_text: responseText,
-        status,
-        created_at: new Date().toISOString()
-      }
-    ])
+        status: 'active',
+        step: step,
+        user_data: {},
+        expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(), // 5 minutes
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }])
+
+    if (error) {
+      console.error('USSD session log error:', error)
+    } else {
+      console.log('USSD session logged successfully')
+    }
   } catch (err) {
-    console.error('logUSSDSession error:', err)
-    // swallow errors - logging should be best-effort
+    console.error('USSD session logging failed:', err)
   }
 }
 
-export const getAfricasTalkingClient = (): AfricasTalkingInstance | null => africastalking
+// ========================
+// Debug helper for your actual schema
+// ========================
+export const debugActualSchema = async (testPhone = '+254700000000'): Promise<void> => {
+  try {
+    console.log('=== Testing Actual Database Schema ===')
+    console.log('Test phone:', testPhone)
+    
+    // Test 1: Check profiles table
+    const { data: profiles, error: profilesError } = await supabase
+      .from('profiles')
+      .select('id, email, full_name, role, phone')
+      .limit(3)
+
+    console.log('✅ Profiles test:', { count: profiles?.length, error: profilesError })
+
+    // Test 2: Check parents table
+    const { data: parents, error: parentsError } = await supabase
+      .from('parents')
+      .select('id, full_name, phone')
+      .limit(3)
+
+    console.log('✅ Parents test:', { count: parents?.length, error: parentsError })
+
+    // Test 3: Check students table
+    const { data: students, error: studentsError } = await supabase
+      .from('students')
+      .select('id, name, guardian_phone')
+      .limit(3)
+
+    console.log('✅ Students test:', { count: students?.length, error: studentsError })
+
+    // Test 4: Check relationships
+    const { data: relationships, error: relError } = await supabase
+      .from('parent_student_relationships')
+      .select(`
+        parent_user_id,
+        student_id,
+        students(name),
+        parents(full_name)
+      `)
+      .limit(3)
+
+    console.log('✅ Relationships test:', { count: relationships?.length, error: relError })
+
+    // Test 5: Check attendance
+    const { data: attendance, error: attendanceError } = await supabase
+      .from('attendance')
+      .select('student_id, status, date')
+      .limit(3)
+
+    console.log('✅ Attendance test:', { count: attendance?.length, error: attendanceError })
+
+    // Test 6: Check payments
+    const { data: payments, error: paymentsError } = await supabase
+      .from('payments')
+      .select('student_id, amount, status')
+      .limit(3)
+
+    console.log('✅ Payments test:', { count: payments?.length, error: paymentsError })
+
+    // Test with specific phone
+    if (testPhone) {
+      console.log('\n=== Phone Lookup Tests ===')
+      
+      const { data: profilePhone, error: profilePhoneError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('phone', testPhone)
+
+      console.log('Profile by phone:', { found: profilePhone?.length, error: profilePhoneError })
+
+      const { data: parentPhone, error: parentPhoneError } = await supabase
+        .from('parents')
+        .select('*')
+        .eq('phone', testPhone)
+
+      console.log('Parent by phone:', { found: parentPhone?.length, error: parentPhoneError })
+
+      const { data: guardianPhone, error: guardianPhoneError } = await supabase
+        .from('students')
+        .select('*')
+        .eq('guardian_phone', testPhone)
+
+      console.log('Students by guardian phone:', { found: guardianPhone?.length, error: guardianPhoneError })
+    }
+
+  } catch (err) {
+    console.error('Schema debug error:', err)
+  }
+}
 
 // ========================
 // Default Export
 // ========================
-const africastalkingLib = {
+export const getAfricasTalkingClient = (): AfricasTalkingInstance | null => africastalking
+
+// Create named export object to avoid anonymous default export
+const africastalkingService = {
   AT_CONFIG,
   formatPhoneNumber,
   sendSMS,
@@ -629,4 +684,4 @@ const africastalkingLib = {
   getAfricasTalkingClient,
 }
 
-export default africastalkingLib
+export default africastalkingService
