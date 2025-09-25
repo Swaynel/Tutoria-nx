@@ -1,7 +1,12 @@
-import { useState, useMemo } from 'react';
-import { supabase } from '../lib/supabase'
+// src/components/CombinedSidebar.tsx
+import { useState, useMemo, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
+import { useAuthContext } from '../contexts/AuthContext';
+import { useDataContext } from '../contexts/DataContext';
+import { useModalContext } from '../contexts/ModalContext';
+import { UserRole, Message as AppMessage, Notification } from '../types';
 
-// Mock components for demo
+// Mock Link component - replace with your actual router Link
 const Link = ({
   href,
   children,
@@ -12,85 +17,10 @@ const Link = ({
   children: React.ReactNode;
   className?: string;
 } & React.HTMLAttributes<HTMLAnchorElement>) => (
-  <a href={href} className={className} {...props}>{children}</a>
+  <a href={href} className={className} {...props}>
+    {children}
+  </a>
 );
-
-// Mock router and auth context
-const useRouter = () => ({ pathname: '/dashboard' });
-const useAuthContext = (): { user: User } => ({
-  user: {
-    full_name: 'John Doe',
-    email: 'john@school.edu',
-    role: 'school_admin' as const,
-    school_name: 'Greenwood Academy',
-  },
-});
-
-// Mock modal context
-const useModalContext = () => ({
-  openModal: <T extends Exclude<ModalType, null>>(type: T, props: BaseModalProps<T>) => {
-    console.log(`Opening modal: ${type}`, props);
-  },
-});
-
-// Mock data context
-const useDataContext = () => ({
-  messages: [
-    {
-      id: '1',
-      subject: 'Parent-Teacher Conference Schedule',
-      sent_at: '2024-01-15T10:30:00Z',
-      read_at: null,
-      sender: 'Sarah Johnson',
-      priority: 'high',
-    },
-    {
-      id: '2',
-      subject: 'Student Fee Payment Due',
-      sent_at: '2024-01-14T14:20:00Z',
-      read_at: null,
-      sender: 'Finance Department',
-      priority: 'medium',
-    },
-    {
-      id: '3',
-      subject: 'Holiday Schedule Update',
-      sent_at: '2024-01-13T09:15:00Z',
-      read_at: null,
-      sender: 'Admin Office',
-      priority: 'low',
-    },
-  ] as Message[],
-  notifications: [
-    {
-      id: '1',
-      title: 'New Student Registration',
-      message: '3 new students registered today',
-      type: 'success',
-      timestamp: '2024-01-15T11:00:00Z',
-      read: false,
-    },
-    {
-      id: '2',
-      title: 'System Maintenance',
-      message: 'Scheduled maintenance tonight 11 PM - 2 AM',
-      type: 'warning',
-      timestamp: '2024-01-15T08:30:00Z',
-      read: false,
-    },
-    {
-      id: '3',
-      title: 'Payment Overdue',
-      message: '5 students have overdue payments',
-      type: 'error',
-      timestamp: '2024-01-14T16:45:00Z',
-      read: true,
-    },
-  ] as Notification[],
-});
-
-// Types
-type UserRole = 'superadmin' | 'school_admin' | 'teacher' | 'parent' | 'student';
 
 interface NavigationItem {
   name: string;
@@ -100,60 +30,6 @@ interface NavigationItem {
   badge?: number;
 }
 
-interface User {
-  full_name?: string;
-  email?: string;
-  role: UserRole;
-  school_name?: string;
-}
-
-interface Message {
-  id: string;
-  subject: string;
-  sent_at: string;
-  read_at: string | null;
-  sender?: string;
-  priority?: 'high' | 'medium' | 'low';
-}
-
-interface Notification {
-  id: string;
-  title: string;
-  message: string;
-  type: 'info' | 'warning' | 'success' | 'error';
-  timestamp: string;
-  read: boolean;
-}
-
-type ModalType = 'compose-message' | 'mark-attendance' | 'record-payment' | 'add-user' | null;
-
-interface ComposeMessageProps {
-  initialTo?: string;
-  initialMessage?: string;
-}
-
-interface MarkAttendanceProps {
-  classId?: string;
-}
-
-interface RecordPaymentProps {
-  studentId?: string;
-}
-
-interface AddUserProps {
-  defaultRole?: UserRole;
-}
-
-type BaseModalProps<T extends ModalType> = T extends 'compose-message'
-  ? ComposeMessageProps
-  : T extends 'mark-attendance'
-  ? MarkAttendanceProps
-  : T extends 'record-payment'
-  ? RecordPaymentProps
-  : T extends 'add-user'
-  ? AddUserProps
-  : never;
-
 interface QuickAction {
   name: string;
   action: () => void;
@@ -162,14 +38,24 @@ interface QuickAction {
   description: string;
 }
 
+// Local interface for sidebar notifications (different from database Notification)
+interface SidebarNotification {
+  id: string;
+  title: string;
+  message: string;
+  type: 'info' | 'warning' | 'success' | 'error';
+  timestamp: string;
+  read: boolean;
+}
+
 const navigationItems: NavigationItem[] = [
   { name: 'Dashboard', href: '/dashboard', icon: '📊', roles: ['superadmin', 'school_admin', 'teacher', 'parent', 'student'] },
-  { name: 'Students', href: '/students', icon: '👨‍🎓', roles: ['superadmin', 'school_admin', 'teacher'], badge: 342 },
-  { name: 'Teachers', href: '/teachers', icon: '👩‍🏫', roles: ['superadmin', 'school_admin'], badge: 28 },
-  { name: 'Parents', href: '/parents', icon: '👨‍👩‍👧', roles: ['superadmin', 'school_admin', 'teacher'], badge: 298 },
+  { name: 'Students', href: '/students', icon: '👨‍🎓', roles: ['superadmin', 'school_admin', 'teacher'], badge: 0 },
+  { name: 'Teachers', href: '/teachers', icon: '👩‍🏫', roles: ['superadmin', 'school_admin'], badge: 0 },
+  { name: 'Parents', href: '/parents', icon: '👨‍👩‍👧', roles: ['superadmin', 'school_admin', 'teacher'], badge: 0 },
   { name: 'Payments', href: '/payments', icon: '💰', roles: ['superadmin', 'school_admin', 'teacher'] },
   { name: 'Attendance', href: '/attendance', icon: '📝', roles: ['superadmin', 'school_admin', 'teacher'] },
-  { name: 'Messages', href: '/messages', icon: '💬', roles: ['superadmin', 'school_admin', 'teacher', 'parent'], badge: 12 },
+  { name: 'Messages', href: '/messages', icon: '💬', roles: ['superadmin', 'school_admin', 'teacher', 'parent'], badge: 0 },
   { name: 'Analytics', href: '/analytics', icon: '📈', roles: ['superadmin', 'school_admin'] },
   { name: 'Settings', href: '/settings', icon: '⚙️', roles: ['superadmin', 'school_admin'] },
 ];
@@ -177,17 +63,22 @@ const navigationItems: NavigationItem[] = [
 export default function CombinedSidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState<'navigation' | 'actions' | 'messages' | 'notifications'>('navigation');
-  
-  const router = useRouter();
-  const { user } = useAuthContext();
+  const [sidebarNotifications, setSidebarNotifications] = useState<SidebarNotification[]>([]);
+  const [loadingNotifications, setLoadingNotifications] = useState(true);
+  const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
+  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
+
+  const { user, signOut: authSignOut } = useAuthContext();
+  const { userProfile, messages: allMessages, loading: dataLoading, notifications: dataNotifications } = useDataContext();
   const { openModal } = useModalContext();
-  const { messages, notifications } = useDataContext();
 
-  const filteredItems = useMemo(
-    () => navigationItems.filter((item) => user && item.roles.includes(user.role)),
-    [user]
-  );
+  // Filter navigation items based on user role
+  const filteredItems = useMemo(() => {
+    if (!userProfile?.role) return [];
+    return navigationItems.filter((item) => item.roles.includes(userProfile.role));
+  }, [userProfile?.role]);
 
+  // Quick actions configuration
   const quickActions = useMemo<QuickAction[]>(
     () => [
       {
@@ -222,20 +113,34 @@ export default function CombinedSidebar() {
     [openModal]
   );
 
-  const filteredActions = useMemo(
-    () => quickActions.filter((action) => user?.role && action.roles.includes(user.role)),
-    [user?.role, quickActions]
-  );
+  const filteredActions = useMemo(() => {
+    if (!userProfile?.role) return [];
+    return quickActions.filter((action) => action.roles.includes(userProfile.role));
+  }, [userProfile?.role, quickActions]);
 
-  const topUnreadMessages = useMemo(
-    () => messages.filter((m) => !m.read_at).slice(0, 5),
-    [messages]
-  );
+  // Sync notifications from DataContext
+  useEffect(() => {
+    if (dataNotifications) {
+      const formatted = dataNotifications.map(notif => ({
+        id: notif.id,
+        title: notif.title,
+        message: notif.message,
+        type: notif.type,
+        timestamp: notif.created_at,
+        read: notif.is_read,
+      }));
+      setSidebarNotifications(formatted);
+      setUnreadNotificationsCount(formatted.filter(n => !n.read).length);
+    }
+    setLoadingNotifications(false);
+  }, [dataNotifications]);
 
-  const unreadNotifications = useMemo(
-    () => notifications.filter((n) => !n.read).slice(0, 5),
-    [notifications]
-  );
+  // Calculate unread messages count
+  useEffect(() => {
+    if (!allMessages) return;
+    const unreadCount = allMessages.filter((msg: AppMessage) => !msg.read_at).length;
+    setUnreadMessagesCount(unreadCount);
+  }, [allMessages]);
 
   const toggleSidebar = () => setIsCollapsed(!isCollapsed);
 
@@ -273,9 +178,49 @@ export default function CombinedSidebar() {
     return 'Just now';
   };
 
+  const topUnreadMessages = useMemo(() => {
+    if (!allMessages) return [];
+    return allMessages
+      .filter((msg: AppMessage) => !msg.read_at)
+      .slice(0, 5)
+      .map(msg => ({
+        id: msg.id,
+        subject: msg.subject || 'No subject',
+        sent_at: msg.sent_at,
+        read_at: msg.read_at,
+        sender: msg.sender?.full_name || 'Unknown',
+        priority: (msg.priority as 'high' | 'medium' | 'low') || 'normal',
+      }));
+  }, [allMessages]);
 
+  const unreadNotifications = useMemo(() => {
+    return sidebarNotifications.filter((n) => !n.read).slice(0, 5);
+  }, [sidebarNotifications]);
 
-  type TabKey = 'navigation' | 'actions' | 'messages' | 'notifications';
+  const handleSignOut = async () => {
+    try {
+      await authSignOut();
+      // Redirect to login
+      if (typeof window !== 'undefined') {
+        window.location.href = '/login';
+      }
+    } catch (error) {
+      console.error('Sign out error:', error);
+      // Still redirect to login even if sign out fails
+      if (typeof window !== 'undefined') {
+        window.location.href = '/login';
+      }
+    }
+  };
+
+  // Show loading state while auth/data is loading
+  if (!userProfile || dataLoading) {
+    return (
+      <div className={`${isCollapsed ? 'w-16' : 'w-80'} bg-gradient-to-b from-gray-900 via-gray-800 to-black text-white flex items-center justify-center`}>
+        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-emerald-500"></div>
+      </div>
+    );
+  }
 
   return (
     <div className={`${isCollapsed ? 'w-16' : 'w-80'} bg-gradient-to-b from-gray-900 via-gray-800 to-black text-white flex flex-col transition-all duration-300 ease-in-out shadow-2xl border-r border-white/10`}>
@@ -287,8 +232,8 @@ export default function CombinedSidebar() {
             {!isCollapsed && (
               <div>
                 <h1 className="text-xl font-bold text-white">Tuitora</h1>
-                {user?.school_name && (
-                  <p className="text-xs text-gray-300 truncate max-w-48">{user.school_name}</p>
+                {userProfile.school?.name && (
+                  <p className="text-xs text-gray-300 truncate max-w-48">{userProfile.school.name}</p>
                 )}
               </div>
             )}
@@ -310,12 +255,12 @@ export default function CombinedSidebar() {
         <div className="border-b border-white/10 bg-white/5">
           <div className="grid grid-cols-2 gap-0">
             {[
-              { key: 'navigation', label: 'Menu', icon: '📋' },
-              { key: 'actions', label: 'Actions', icon: '⚡', count: filteredActions.length },
+              { key: 'navigation' as const, label: 'Menu', icon: '📋' },
+              { key: 'actions' as const, label: 'Actions', icon: '⚡', count: filteredActions.length },
             ].map((tab) => (
               <button
                 key={tab.key}
-                onClick={() => setActiveTab(tab.key as TabKey)}
+                onClick={() => setActiveTab(tab.key)}
                 className={`flex items-center justify-center px-3 py-3 text-sm font-medium transition-all duration-200 ${
                   activeTab === tab.key
                     ? 'text-white border-b-2 border-emerald-500 bg-white/10'
@@ -336,12 +281,12 @@ export default function CombinedSidebar() {
           </div>
           <div className="grid grid-cols-2 gap-0">
             {[
-              { key: 'messages', label: 'Messages', icon: '💬', count: topUnreadMessages.length },
-              { key: 'notifications', label: 'Alerts', icon: '🔔', count: unreadNotifications.length },
+              { key: 'messages' as const, label: 'Messages', icon: '💬', count: unreadMessagesCount },
+              { key: 'notifications' as const, label: 'Alerts', icon: '🔔', count: unreadNotificationsCount },
             ].map((tab) => (
               <button
                 key={tab.key}
-                onClick={() => setActiveTab(tab.key as TabKey)}
+                onClick={() => setActiveTab(tab.key)}
                 className={`flex items-center justify-center px-3 py-3 text-sm font-medium transition-all duration-200 ${
                   activeTab === tab.key
                     ? 'text-white border-b-2 border-emerald-500 bg-white/10'
@@ -369,7 +314,7 @@ export default function CombinedSidebar() {
           <nav className="p-4">
             <ul className="space-y-2">
               {filteredItems.map((item) => {
-                const isActive = router.pathname === item.href;
+                const isActive = window.location.pathname === item.href;
                 return (
                   <li key={item.name}>
                     <Link
@@ -384,7 +329,7 @@ export default function CombinedSidebar() {
                       {!isCollapsed && (
                         <>
                           <span className="flex-1 font-medium">{item.name}</span>
-                          {item.badge && (
+                          {item.badge !== undefined && (
                             <span className={`px-2 py-1 text-xs font-semibold rounded-full ${isActive ? 'bg-white text-black' : 'text-white bg-emerald-500'}`}>
                               {item.badge > 99 ? '99+' : item.badge}
                             </span>
@@ -437,6 +382,7 @@ export default function CombinedSidebar() {
                   <div
                     key={message.id}
                     className="p-3 rounded-xl bg-white/10 border border-white/20 transition-all duration-200 hover:bg-white/15 cursor-pointer"
+                    onClick={() => window.location.href = '/messages'}
                     aria-label={`Message: ${message.subject}`}
                   >
                     <div className="flex items-start justify-between mb-2">
@@ -474,6 +420,14 @@ export default function CombinedSidebar() {
                   <div
                     key={notification.id}
                     className="p-3 rounded-xl bg-white/10 border border-white/20 transition-all duration-200 hover:bg-white/15 cursor-pointer"
+                    onClick={async () => {
+                      if (notification.read) return;
+                      // Mark as read when clicked
+                      await supabase
+                        .from('notifications')
+                        .update({ is_read: true, updated_at: new Date().toISOString() })
+                        .eq('id', notification.id);
+                    }}
                   >
                     <div className="flex items-start space-x-3">
                       <div className={`flex-shrink-0 w-2 h-2 rounded-full mt-2 ${
@@ -502,60 +456,56 @@ export default function CombinedSidebar() {
 
       {/* User Info Footer */}
       <div className="p-4 border-t border-white/10 backdrop-blur-sm bg-white/5">
-          {isCollapsed ? (
-            <div className="flex justify-center">
-              <div className="w-8 h-8 rounded-full flex items-center justify-center text-gray-900 font-medium text-sm shadow-lg bg-gray-100">
-                {user?.full_name?.charAt(0) || user?.email?.charAt(0) || '?'}
+        {isCollapsed ? (
+          <div className="flex justify-center">
+            <div className="w-8 h-8 rounded-full flex items-center justify-center text-gray-900 font-medium text-sm shadow-lg bg-gray-100">
+              {userProfile.full_name?.charAt(0) || userProfile.email?.charAt(0) || '?'}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-full flex items-center justify-center text-gray-900 font-medium shadow-lg flex-shrink-0 bg-gray-100">
+                {userProfile.full_name?.charAt(0) || userProfile.email?.charAt(0) || '?'}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-white truncate">
+                  {userProfile.full_name || userProfile.email || 'Unknown User'}
+                </p>
+                <div className="flex items-center space-x-2 mt-1">
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getRoleColor(userProfile.role)}`}>
+                    {getRoleBadge(userProfile.role)}
+                  </span>
+                </div>
               </div>
             </div>
-          ) : (
-            <div className="space-y-3">
-              <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-full flex items-center justify-center text-gray-900 font-medium shadow-lg flex-shrink-0 bg-gray-100">
-                  {user?.full_name?.charAt(0) || user?.email?.charAt(0) || '?'}
+            <div className="grid grid-cols-2 gap-2 pt-3 border-t border-white/10">
+              <div className="text-center">
+                <div className="text-sm font-semibold text-emerald-400">
+                  {unreadMessagesCount}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-white truncate">
-                    {user?.full_name || user?.email || 'Unknown User'}
-                  </p>
-                  <div className="flex items-center space-x-2 mt-1">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getRoleColor(user?.role || 'student')}`}>
-                      {getRoleBadge(user?.role || 'student')}
-                    </span>
-                  </div>
-                </div>
+                <div className="text-xs text-gray-300">Unread</div>
               </div>
-              <div className="grid grid-cols-2 gap-2 pt-3 border-t border-white/10">
-                <div className="text-center">
-                  <div className="text-sm font-semibold text-emerald-400">124</div>
-                  <div className="text-xs text-gray-300">Active</div>
+              <div className="text-center">
+                <div className="text-sm font-semibold text-blue-400">
+                  {allMessages ? allMessages.length : 0}
                 </div>
-                <div className="text-center">
-                  <div className="text-sm font-semibold text-blue-400">8</div>
-                  <div className="text-xs text-gray-300">Pending</div>
-                </div>
-              </div>
-              <div className="text-center text-xs text-gray-400 pt-2 border-t border-white/10">
-                {new Date().toLocaleDateString()}
-              </div>
-              <div className="pt-3">
-                <button
-                  onClick={async () => {
-                    try {
-                      await supabase.auth.signOut()
-                    } catch {
-                      // ignore - sign out best-effort
-                    }
-                    // redirect to login
-                    if (typeof window !== 'undefined') window.location.href = '/login'
-                  }}
-                  className="w-full text-sm py-2 rounded-lg bg-white/5 hover:bg-white/10 text-gray-200 transition-colors"
-                >
-                  Sign out
-                </button>
+                <div className="text-xs text-gray-300">Messages</div>
               </div>
             </div>
-          )}
+            <div className="text-center text-xs text-gray-400 pt-2 border-t border-white/10">
+              {new Date().toLocaleDateString()}
+            </div>
+            <div className="pt-3">
+              <button
+                onClick={handleSignOut}
+                className="w-full text-sm py-2 rounded-lg bg-white/5 hover:bg-white/10 text-gray-200 transition-colors"
+              >
+                Sign out
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

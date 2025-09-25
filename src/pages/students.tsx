@@ -48,9 +48,10 @@ export default function Students(): ReactElement {
       name: newStudentName,
       grade: newStudentGrade,
       is_active: true,
-      date_of_birth: null,
+      date_of_birth: undefined,
       created_at: new Date().toISOString(),
       school_id: school_id!,
+      updated_at: ''
     }
 
     try {
@@ -59,7 +60,7 @@ export default function Students(): ReactElement {
         name: newStudentName,
         grade: newStudentGrade,
         is_active: true,
-        date_of_birth: null,
+        date_of_birth: undefined,
       })
 
       // Optimistic UI update
