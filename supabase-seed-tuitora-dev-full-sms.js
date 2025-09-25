@@ -334,7 +334,7 @@ async function seed() {
           message: "✅ Tuitora dev seed complete! Check Supabase dashboard.",
           from: AT_SHORTCODE,
         });
-        console.log("📲 Demo SMS sent!");
+        console.log("📲 Demo SMSes sent!");
       }
     } catch (err) {
       console.warn("⚠️ USSD or SMS failed:", err.message);
