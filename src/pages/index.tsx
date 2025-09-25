@@ -117,7 +117,7 @@ export default function Home() {
       </div>
 
       <Head>
-        <title>Tuitora - Modern School Management Platform</title>
+        <title>Tutoria - Modern School Management Platform</title>
         <meta
           name="description"
           content="Multi-school EdTech platform for school management with communication, attendance tracking, and payment management"

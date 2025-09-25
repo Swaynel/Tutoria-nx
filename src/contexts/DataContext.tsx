@@ -242,11 +242,9 @@ export function DataProvider({ children }: DataProviderProps) {
       setNotifications([]);
     }
   }, [user, fetchProfile]);
-
-  useEffect(() => {
-    if (school_id && user?.id) fetchAllSchoolData();
-  }, [school_id, user?.id, fetchAllSchoolData]);
-
+useEffect(() => {
+  if (userProfile && user?.id) fetchAllSchoolData();
+}, [userProfile, user?.id, fetchAllSchoolData]);
   // --- Real-time subscriptions ---
   useEffect(() => {
     if (!school_id || !user?.id) return;
