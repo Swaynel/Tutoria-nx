@@ -112,115 +112,18 @@ if (typeof window === 'undefined') {
 }
 
 // ========================
-// SMS Functions
+// FIXED USSD Functions (Keep these corrected versions)
 // ========================
-export const sendSMS = async (to: string[], message: string): Promise<SMSResult[]> => {
-  if (typeof window !== 'undefined' || !africastalking) {
-    return to.map((recipient) => ({ recipient, success: false, error: 'SMS must be sent from server-side' }))
-  }
-
-  try {
-    const result = await africastalking.SMS.send({
-      to,
-      message: `${message}\n\n- ${AT_CONFIG.SMS_SENDER_ID}`,
-      from: AT_CONFIG.SMS_SHORT_CODE,
-      enqueue: true,
-    })
-
-    return result.SMSMessageData.Recipients.map((r) => ({
-      recipient: r.number,
-      success: r.status === 'Success',
-      messageId: r.messageId,
-      cost: r.cost,
-      error: r.status !== 'Success' ? r.status : undefined,
-    }))
-  } catch (err) {
-    console.error("Africa's Talking SMS error:", err)
-    return to.map((recipient) => ({ recipient, success: false, error: (err as Error).message }))
-  }
-}
-
-export const sendBulkSMS = async (
-  recipients: Array<{ phone: string; name?: string }>,
-  message: string
-): Promise<SMSResult[]> => {
-  const phoneNumbers = recipients.map((r) => formatPhoneNumber(r.phone))
-  const batchSize = 10
-  const results: SMSResult[] = []
-
-  for (let i = 0; i < phoneNumbers.length; i += batchSize) {
-    const batch = phoneNumbers.slice(i, i + batchSize)
-    const batchResults = await sendSMS(batch, message)
-    results.push(...batchResults)
-    if (i + batchSize < phoneNumbers.length) await new Promise((r) => setTimeout(r, 1000))
-  }
-
-  return results
-}
-
-export const sendWhatsApp = async (to: string[], message: string): Promise<WhatsAppResult[]> => {
-  const smsResults = await sendSMS(to, `[WhatsApp] ${message}`)
-  return smsResults.map((r) => ({ recipient: r.recipient, success: r.success, messageId: r.messageId, error: r.error }))
-}
-
-// ========================
-// USSD Functions
-// ========================
-export const initiateUSSD = async (phoneNumber: string, serviceCode = AT_CONFIG.USSD_SERVICE_CODE): Promise<USSDSession> => {
-  const sessionId = `ussd_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
-  return {
-    sessionId,
-    phoneNumber: formatPhoneNumber(phoneNumber),
-    serviceCode,
-    text: 'Welcome to Tuitora. Select option:\n1. Check Attendance\n2. Check Fees\n3. Contact School',
-  }
-}
-
-export const processUSSDResponse = async (session: USSDSession, text: string): Promise<USSDResponse> => {
-  const inputs = text.split('*').filter((i) => i)
-  let responseText: string
-
-  switch (inputs[0] as USSDOption) {
-    case '1':
-      responseText = await getAttendanceUSSD(session.phoneNumber, inputs)
-      break
-    case '2':
-      responseText = await getFeesUSSD(session.phoneNumber, inputs)
-      break
-    case '3':
-      responseText = 'Contact your school admin at: 0700-000-000\nOr visit: tuitora.com'
-      break
-    default:
-      responseText = 'Welcome to Tuitora. Select option:\n1. Check Attendance\n2. Check Fees\n3. Contact School'
-      break
-  }
-
-  await supabase.from('ussd_sessions').insert([{
-    session_id: session.sessionId,
-    phone: session.phoneNumber,
-    input_text: text,
-    response_text: responseText,
-    status: 'pending',
-    created_at: new Date().toISOString(),
-  }]).match((err: unknown) => console.error('USSD log error:', err))
-
-  return { sessionId: session.sessionId, phoneNumber: session.phoneNumber, text: responseText, status: 'pending' }
-}
-
-// ========================
-// USSD DB functions based on your actual database schema
-// ========================
-
 const getAttendanceUSSD = async (phone: string, inputs: string[]): Promise<string> => {
   try {
     console.log('Fetching attendance for phone:', phone)
     
     let studentIds: string[] = []
 
-    // Method 1: Check if phone belongs to a profile (user)
+    // Method 1: Check if phone belongs to a profile (user) who is a parent
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('id, role, full_name,school_id')
+      .select('id, role, full_name, school_id')
       .eq('phone', phone)
       .single()
 
@@ -228,36 +131,47 @@ const getAttendanceUSSD = async (phone: string, inputs: string[]): Promise<strin
       console.log('Profile found:', profile)
 
       if (profile.role === 'parent') {
-        // Find students through parent_student_relationships
-        const { data: relationships, error: relError } = await supabase
-          .from('parent_student_relationships')
-          .select(`
-            student_id,
-            students(id, name)
-          `)
-          .eq('parent_user_id', profile.id)
+        // ✅ CORRECT: Find the parent record that matches this profile by phone
+        const { data: parent, error: parentError } = await supabase
+          .from('parents')
+          .select('id, full_name')
+          .eq('phone', phone) // Find parent by phone, not by profile.id
+          .single()
 
-        if (!relError && relationships) {
-          studentIds = relationships.map(r => r.student_id)
-          console.log('Students found via profile parent relationships:', studentIds)
+        if (parent && !parentError) {
+          // Now use the parent.id to find relationships
+          const { data: relationships, error: relError } = await supabase
+            .from('parent_student_relationships')
+            .select(`
+              student_id,
+              students(id, name)
+            `)
+            .eq('parent_user_id', parent.id) // ✅ Use parent.id, not profile.id
+
+          if (!relError && relationships) {
+            studentIds = relationships.map(r => r.student_id)
+            console.log('Students found via profile parent relationships:', studentIds)
+          }
         }
       } else if (profile.role === 'student') {
         // If profile is a student, find matching student record by name/email
-        const { data: student } = await supabase
-          .from('students')
-          .select('id, name')
-          .eq('school_id', profile.school_id ?? '')
-          .ilike('name', `%${profile.full_name}%`) // Fuzzy match by name
-          .single()
+        if (profile.school_id) {
+          const { data: student } = await supabase
+            .from('students')
+            .select('id, name')
+            .eq('school_id', profile.school_id)
+            .ilike('name', `%${profile.full_name}%`) // Fuzzy match by name
+            .single()
 
-        if (student) {
-          studentIds.push(student.id)
-          console.log('Student found via profile match:', student)
+          if (student) {
+            studentIds.push(student.id)
+            console.log('Student found via profile match:', student)
+          }
         }
       }
     }
 
-    // Method 2: Check if phone belongs to a parent directly
+    // Method 2: Check if phone belongs to a parent directly (this is the main method)
     if (studentIds.length === 0) {
       const { data: parent, error: parentError } = await supabase
         .from('parents')
@@ -274,7 +188,7 @@ const getAttendanceUSSD = async (phone: string, inputs: string[]): Promise<strin
             student_id,
             students(id, name)
           `)
-          .eq('parent_user_id', parent.id)
+          .eq('parent_user_id', parent.id) // ✅ Correct: parent.id
 
         if (!relError && relationships) {
           studentIds = relationships.map(r => r.student_id)
@@ -283,7 +197,7 @@ const getAttendanceUSSD = async (phone: string, inputs: string[]): Promise<strin
       }
     }
 
-    // Method 3: Check guardian phone in students table
+    // Method 3: Check guardian phone in students table (fallback)
     if (studentIds.length === 0) {
       const { data: students, error: guardianError } = await supabase
         .from('students')
@@ -376,7 +290,7 @@ const getFeesUSSD = async (phone: string, inputs: string[]): Promise<string> => 
 
     let studentIds: string[] = []
 
-    // Method 1: Check if phone belongs to a profile (user)
+    // Method 1: Check if phone belongs to a profile (user) who is a parent
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('id, role, full_name, school_id')
@@ -387,31 +301,41 @@ const getFeesUSSD = async (phone: string, inputs: string[]): Promise<string> => 
       console.log('Profile found:', profile)
 
       if (profile.role === 'parent') {
-        // Find students through parent_student_relationships
-        const { data: relationships, error: relError } = await supabase
-          .from('parent_student_relationships')
-          .select(`
-            student_id,
-            students(id, name)
-          `)
-          .eq('parent_user_id', profile.id)
-
-        if (!relError && relationships) {
-          studentIds = relationships.map(r => r.student_id)
-          console.log('Students found via profile parent relationships:', studentIds)
-        }
-      } else if (profile.role === 'student') {
-        // If profile is a student, find matching student record
-        const { data: student } = await supabase
-          .from('students')
-          .select('id, name')
-          .eq('school_id', profile.school_id)
-          .ilike('name', `%${profile.full_name}%`)
+        // ✅ CORRECT: Find the parent record that matches this profile
+        const { data: parent, error: parentError } = await supabase
+          .from('parents')
+          .select('id, full_name')
+          .eq('phone', phone) // Find parent by phone
           .single()
 
-        if (student) {
-          studentIds.push(student.id)
-          console.log('Student found via profile match:', student)
+        if (parent && !parentError) {
+          // Now use the parent.id to find relationships
+          const { data: relationships, error: relError } = await supabase
+            .from('parent_student_relationships')
+            .select(`
+              student_id,
+              students(id, name)
+            `)
+            .eq('parent_user_id', parent.id) // ✅ Use parent.id
+
+          if (!relError && relationships) {
+            studentIds = relationships.map(r => r.student_id)
+            console.log('Students found via profile parent relationships:', studentIds)
+          }
+        }
+      } else if (profile.role === 'student') {
+        if (profile.school_id) {
+          const { data: student } = await supabase
+            .from('students')
+            .select('id, name')
+            .eq('school_id', profile.school_id)
+            .ilike('name', `%${profile.full_name}%`)
+            .single()
+
+          if (student) {
+            studentIds.push(student.id)
+            console.log('Student found via profile match:', student)
+          }
         }
       }
     }
@@ -433,7 +357,7 @@ const getFeesUSSD = async (phone: string, inputs: string[]): Promise<string> => 
             student_id,
             students(id, name)
           `)
-          .eq('parent_user_id', parent.id)
+          .eq('parent_user_id', parent.id) // ✅ Correct
 
         if (!relError && relationships) {
           studentIds = relationships.map(r => r.student_id)
@@ -535,6 +459,107 @@ const getFeesUSSD = async (phone: string, inputs: string[]): Promise<string> => 
     console.error('Fees USSD error:', err)
     return 'FEES SUMMARY:\nSystem error. Please try again.\n0. Back\n00. Main Menu'
   }
+}
+
+// ========================
+// SMS Functions
+// ========================
+export const sendSMS = async (to: string[], message: string): Promise<SMSResult[]> => {
+  if (typeof window !== 'undefined' || !africastalking) {
+    return to.map((recipient) => ({ recipient, success: false, error: 'SMS must be sent from server-side' }))
+  }
+
+  try {
+    const result = await africastalking.SMS.send({
+      to,
+      message: `${message}\n\n- ${AT_CONFIG.SMS_SENDER_ID}`,
+      from: AT_CONFIG.SMS_SHORT_CODE,
+      enqueue: true,
+    })
+
+    return result.SMSMessageData.Recipients.map((r) => ({
+      recipient: r.number,
+      success: r.status === 'Success',
+      messageId: r.messageId,
+      cost: r.cost,
+      error: r.status !== 'Success' ? r.status : undefined,
+    }))
+  } catch (err) {
+    console.error("Africa's Talking SMS error:", err)
+    return to.map((recipient) => ({ recipient, success: false, error: (err as Error).message }))
+  }
+}
+
+export const sendBulkSMS = async (
+  recipients: Array<{ phone: string; name?: string }>,
+  message: string
+): Promise<SMSResult[]> => {
+  const phoneNumbers = recipients.map((r) => formatPhoneNumber(r.phone))
+  const batchSize = 10
+  const results: SMSResult[] = []
+
+  for (let i = 0; i < phoneNumbers.length; i += batchSize) {
+    const batch = phoneNumbers.slice(i, i + batchSize)
+    const batchResults = await sendSMS(batch, message)
+    results.push(...batchResults)
+    if (i + batchSize < phoneNumbers.length) await new Promise((r) => setTimeout(r, 1000))
+  }
+
+  return results
+}
+
+export const sendWhatsApp = async (to: string[], message: string): Promise<WhatsAppResult[]> => {
+  const smsResults = await sendSMS(to, `[WhatsApp] ${message}`)
+  return smsResults.map((r) => ({ recipient: r.recipient, success: r.success, messageId: r.messageId, error: r.error }))
+}
+
+// ========================
+// USSD Functions
+// ========================
+export const initiateUSSD = async (phoneNumber: string, serviceCode = AT_CONFIG.USSD_SERVICE_CODE): Promise<USSDSession> => {
+  const sessionId = `ussd_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+  return {
+    sessionId,
+    phoneNumber: formatPhoneNumber(phoneNumber),
+    serviceCode,
+    text: 'Welcome to Tuitora. Select option:\n1. Check Attendance\n2. Check Fees\n3. Contact School',
+  }
+}
+
+export const processUSSDResponse = async (session: USSDSession, text: string): Promise<USSDResponse> => {
+  const inputs = text.split('*').filter((i) => i)
+  let responseText: string
+
+  switch (inputs[0] as USSDOption) {
+    case '1':
+      responseText = await getAttendanceUSSD(session.phoneNumber, inputs)
+      break
+    case '2':
+      responseText = await getFeesUSSD(session.phoneNumber, inputs)
+      break
+    case '3':
+      responseText = 'Contact your school admin at: 0700-000-000\nOr visit: tuitora.com'
+      break
+    default:
+      responseText = 'Welcome to Tuitora. Select option:\n1. Check Attendance\n2. Check Fees\n3. Contact School'
+      break
+  }
+
+  // Log the USSD session
+  try {
+    await supabase.from('ussd_sessions').insert([{
+      session_id: session.sessionId,
+      phone: session.phoneNumber,
+      input_text: text,
+      response_text: responseText,
+      status: 'pending',
+      created_at: new Date().toISOString(),
+    }])
+  } catch (err) {
+    console.error('USSD log error:', err)
+  }
+
+  return { sessionId: session.sessionId, phoneNumber: session.phoneNumber, text: responseText, status: 'pending' }
 }
 
 // ========================
